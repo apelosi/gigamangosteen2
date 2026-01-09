@@ -1,0 +1,154 @@
+"use client"
+
+import { useState, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { PlayingCard } from "./playing-card"
+import { CardSelector } from "./card-selector"
+import { ScoreDisplay } from "./score-display"
+import { cn } from "@/lib/utils"
+
+const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
+const suits = ["hearts", "diamonds", "clubs", "spades"]
+
+interface GameState {
+  currentCard: { rank: string; suit: string }
+  isFlipped: boolean
+  hasGuessed: boolean
+  lastResult: "correct" | "incorrect" | null
+  correct: number
+  incorrect: number
+}
+
+function getRandomCard() {
+  return {
+    rank: ranks[Math.floor(Math.random() * ranks.length)],
+    suit: suits[Math.floor(Math.random() * suits.length)],
+  }
+}
+
+export function CardGame() {
+  const [gameState, setGameState] = useState<GameState>({
+    currentCard: getRandomCard(),
+    isFlipped: false,
+    hasGuessed: false,
+    lastResult: null,
+    correct: 0,
+    incorrect: 0,
+  })
+
+  const [selectedRank, setSelectedRank] = useState<string>("")
+  const [selectedSuit, setSelectedSuit] = useState<string>("")
+
+  const handleGuess = useCallback(() => {
+    if (!selectedRank || !selectedSuit) return
+
+    const isCorrect = selectedRank === gameState.currentCard.rank && selectedSuit === gameState.currentCard.suit
+
+    setGameState((prev) => ({
+      ...prev,
+      isFlipped: true,
+      hasGuessed: true,
+      lastResult: isCorrect ? "correct" : "incorrect",
+      correct: isCorrect ? prev.correct + 1 : prev.correct,
+      incorrect: isCorrect ? prev.incorrect : prev.incorrect + 1,
+    }))
+  }, [selectedRank, selectedSuit, gameState.currentCard])
+
+  const handleNextCard = useCallback(() => {
+    setSelectedRank("")
+    setSelectedSuit("")
+    setGameState((prev) => ({
+      ...prev,
+      currentCard: getRandomCard(),
+      isFlipped: false,
+      hasGuessed: false,
+      lastResult: null,
+    }))
+  }, [])
+
+  const handleReset = useCallback(() => {
+    setSelectedRank("")
+    setSelectedSuit("")
+    setGameState({
+      currentCard: getRandomCard(),
+      isFlipped: false,
+      hasGuessed: false,
+      lastResult: null,
+      correct: 0,
+      incorrect: 0,
+    })
+  }, [])
+
+  return (
+    <div className="flex flex-col items-center gap-6 sm:gap-8">
+      {/* Score Display */}
+      <ScoreDisplay correct={gameState.correct} incorrect={gameState.incorrect} className="w-full max-w-md" />
+
+      {/* Card Display */}
+      <div className="relative">
+        <PlayingCard
+          suit={gameState.currentCard.suit}
+          rank={gameState.currentCard.rank}
+          isFlipped={gameState.isFlipped}
+        />
+
+        {/* Result Overlay */}
+        {gameState.hasGuessed && (
+          <div
+            className={cn(
+              "absolute -bottom-4 left-1/2 -translate-x-1/2 transform rounded-full px-4 py-2 text-sm font-semibold shadow-lg sm:text-base",
+              gameState.lastResult === "correct"
+                ? "bg-success text-success-foreground"
+                : "bg-destructive text-destructive-foreground",
+            )}
+            role="alert"
+            aria-live="polite"
+          >
+            {gameState.lastResult === "correct" ? "🎉 Correct!" : "❌ Incorrect"}
+          </div>
+        )}
+      </div>
+
+      {/* Game Controls */}
+      <div className="mt-4 flex flex-col items-center gap-6">
+        {!gameState.hasGuessed ? (
+          <>
+            <p className="text-center text-lg font-medium text-foreground">What card do you think this is?</p>
+            <CardSelector
+              selectedRank={selectedRank}
+              selectedSuit={selectedSuit}
+              onRankChange={setSelectedRank}
+              onSuitChange={setSelectedSuit}
+              disabled={gameState.hasGuessed}
+            />
+            <Button
+              size="lg"
+              onClick={handleGuess}
+              disabled={!selectedRank || !selectedSuit}
+              className="w-full sm:w-auto"
+            >
+              Reveal Card
+            </Button>
+          </>
+        ) : (
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <Button size="lg" onClick={handleNextCard} className="min-w-40">
+              Next Card
+            </Button>
+            <Button size="lg" variant="outline" onClick={handleReset} className="min-w-40 bg-transparent">
+              Start Over
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Instructions */}
+      <div className="mt-4 max-w-md rounded-lg bg-muted/50 p-4 text-center">
+        <p className="text-sm text-muted-foreground">
+          Select a rank and suit, then click reveal to see if your guess is correct. Cards are randomly drawn from a
+          standard 52-card deck.
+        </p>
+      </div>
+    </div>
+  )
+}
