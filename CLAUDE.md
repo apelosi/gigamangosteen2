@@ -265,6 +265,7 @@ SQL migration files go in `/scripts/`. Run them manually in Supabase SQL Editor.
 - Dark/light mode theme support
 - Mobile-responsive design
 - Accessible UI with ARIA labels and keyboard navigation
+- Database debug section displaying current session record (session_id, wins, losses, created_at, updated_at) for local config verification
 
 ### Architectural Decisions
 - **Client-side game logic**: All validation runs in browser (no backend API)
@@ -284,6 +285,7 @@ SQL migration files go in `/scripts/`. Run them manually in Supabase SQL Editor.
 - 2026-01-10: Added environment variables setup instructions to CLAUDE.md for local development
 - 2026-01-10: Created `.env` file with placeholder values for Supabase credentials
 - 2026-01-10: Created `.env.example` template file and updated `.gitignore` to allow it to be committed while ignoring actual `.env` files
+- 2026-01-10: Added database debug section to card-game.tsx to display session record for verifying local Supabase configuration
 
 ## Troubleshooting
 

@@ -20,6 +20,14 @@ interface GameState {
   incorrect: number
 }
 
+interface SessionData {
+  session_id: string
+  wins: number
+  losses: number
+  created_at: string
+  updated_at: string
+}
+
 function getRandomCard() {
   return {
     rank: ranks[Math.floor(Math.random() * ranks.length)],
@@ -29,6 +37,7 @@ function getRandomCard() {
 
 export function CardGame() {
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionData, setSessionData] = useState<SessionData | null>(null)
   const [gameState, setGameState] = useState<GameState>({
     currentCard: getRandomCard(),
     isFlipped: false,
@@ -52,6 +61,21 @@ export function CardGame() {
     }
   }, [])
 
+  const fetchSessionData = useCallback(async () => {
+    if (!sessionId) return
+
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+      .from("card_guessing")
+      .select("session_id, wins, losses, created_at, updated_at")
+      .eq("session_id", sessionId)
+      .single()
+
+    if (!error && data) {
+      setSessionData(data)
+    }
+  }, [sessionId])
+
   const updateSession = useCallback(
     async (wins: number, losses: number) => {
       if (!sessionId) return
@@ -62,13 +86,22 @@ export function CardGame() {
         .from("card_guessing")
         .update({ wins, losses, updated_at: new Date().toISOString() })
         .eq("session_id", sessionId)
+
+      // Fetch updated data after update
+      fetchSessionData()
     },
-    [sessionId],
+    [sessionId, fetchSessionData],
   )
 
   useEffect(() => {
     createSession()
   }, [createSession])
+
+  useEffect(() => {
+    if (sessionId) {
+      fetchSessionData()
+    }
+  }, [sessionId, fetchSessionData])
 
   const handleGuess = useCallback(() => {
     if (!selectedRank || !selectedSuit) return
@@ -194,6 +227,60 @@ export function CardGame() {
           standard 52-card deck.
         </p>
       </div>
+
+      {/* Database Debug Section */}
+      {sessionData && (
+        <div className="mt-12 w-full max-w-4xl">
+          <h2 className="mb-2 text-xl font-semibold uppercase tracking-wide text-muted-foreground">
+            DATABASE RECORD (DEVELOPMENT)
+          </h2>
+          <p className="mb-6 text-sm text-muted-foreground">Verify that data is being saved to the database</p>
+          <div className="overflow-hidden rounded-2xl border border-border bg-card/50 p-8 shadow-sm backdrop-blur-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">session_id</th>
+                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">wins</th>
+                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">losses</th>
+                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">created_at</th>
+                    <th className="pb-4 text-left text-base font-normal text-muted-foreground">updated_at</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="py-6 pr-8 font-mono text-sm text-foreground">{sessionData.session_id}</td>
+                    <td className="py-6 pr-8 text-base text-foreground">{sessionData.wins}</td>
+                    <td className="py-6 pr-8 text-base text-foreground">{sessionData.losses}</td>
+                    <td className="py-6 pr-8 text-base text-foreground">
+                      {new Date(sessionData.created_at).toLocaleString("en-US", {
+                        month: "numeric",
+                        day: "numeric",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                        second: "2-digit",
+                        hour12: true,
+                      })}
+                    </td>
+                    <td className="py-6 text-base text-foreground">
+                      {new Date(sessionData.updated_at).toLocaleString("en-US", {
+                        month: "numeric",
+                        day: "numeric",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                        second: "2-digit",
+                        hour12: true,
+                      })}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
