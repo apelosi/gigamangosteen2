@@ -19,8 +19,8 @@ const suitSymbols: Record<string, string> = {
 const suitColors: Record<string, string> = {
   hearts: "text-red-600",
   diamonds: "text-red-600",
-  clubs: "text-foreground",
-  spades: "text-foreground",
+  clubs: "text-slate-900",
+  spades: "text-slate-900",
 }
 
 export function PlayingCard({ suit, rank, isFlipped, className }: PlayingCardProps) {
@@ -41,19 +41,19 @@ export function PlayingCard({ suit, rank, isFlipped, className }: PlayingCardPro
       >
         {/* Card Back */}
         <div
-          className="absolute inset-0 flex items-center justify-center rounded-xl border-2 border-border bg-gradient-to-br from-primary to-primary/80 shadow-xl"
+          className="absolute inset-0 flex items-center justify-center rounded-xl bg-white shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] overflow-hidden"
           style={{ backfaceVisibility: "hidden" }}
         >
-          <div className="grid h-[85%] w-[85%] grid-cols-4 gap-1 rounded-lg bg-primary-foreground/10 p-2">
-            {Array.from({ length: 16 }).map((_, i) => (
-              <div key={i} className="rounded-sm bg-primary-foreground/20" />
-            ))}
-          </div>
+          <img
+            src="/card-back.png"
+            alt="Card Back"
+            className="h-full w-full object-cover"
+          />
         </div>
 
         {/* Card Front */}
         <div
-          className="absolute inset-0 flex flex-col items-center justify-between rounded-xl border-2 border-border bg-card p-3 shadow-xl sm:p-4"
+          className="absolute inset-0 flex flex-col items-center justify-between rounded-xl bg-white p-3 shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] sm:p-4"
           style={{
             backfaceVisibility: "hidden",
             transform: "rotateY(180deg)",

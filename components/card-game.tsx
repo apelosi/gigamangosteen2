@@ -91,12 +91,14 @@ export function CardGame() {
           rank={gameState.currentCard.rank}
           isFlipped={gameState.isFlipped}
         />
+      </div>
 
-        {/* Result Overlay */}
+      {/* Game Controls */}
+      <div className="mt-4 flex flex-col items-center gap-6">
         {gameState.hasGuessed && (
           <div
             className={cn(
-              "absolute -bottom-4 left-1/2 -translate-x-1/2 transform rounded-full px-4 py-2 text-sm font-semibold shadow-lg sm:text-base",
+              "flex items-center gap-2 rounded-full px-6 py-3 text-lg font-bold shadow-[0_10px_30px_-5px_rgba(0,0,0,0.3)] animate-in fade-in zoom-in duration-300",
               gameState.lastResult === "correct"
                 ? "bg-success text-success-foreground"
                 : "bg-destructive text-destructive-foreground",
@@ -104,13 +106,19 @@ export function CardGame() {
             role="alert"
             aria-live="polite"
           >
-            {gameState.lastResult === "correct" ? "🎉 Correct!" : "❌ Incorrect"}
+            {gameState.lastResult === "correct" ? (
+              <>
+                <span className="text-2xl">🎉</span>
+                <span>CORRECT!</span>
+              </>
+            ) : (
+              <>
+                <span className="text-2xl">❌</span>
+                <span>INCORRECT</span>
+              </>
+            )}
           </div>
         )}
-      </div>
-
-      {/* Game Controls */}
-      <div className="mt-4 flex flex-col items-center gap-6">
         {!gameState.hasGuessed ? (
           <>
             <p className="text-center text-lg font-medium text-foreground">What card do you think this is?</p>
