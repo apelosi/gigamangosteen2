@@ -54,16 +54,24 @@ export function CardGame() {
     const supabase = getSupabaseClient()
     const newSessionId = crypto.randomUUID()
 
+    console.log("Creating session:", newSessionId)
     const { error } = await supabase.from("card_guessing").insert({ session_id: newSessionId, wins: 0, losses: 0 })
 
-    if (!error) {
+    if (error) {
+      console.error("Error creating session:", error)
+    } else {
+      console.log("Session created successfully")
       setSessionId(newSessionId)
     }
   }, [])
 
   const fetchSessionData = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId) {
+      console.log("No sessionId, skipping fetch")
+      return
+    }
 
+    console.log("Fetching session data for:", sessionId)
     const supabase = getSupabaseClient()
     const { data, error } = await supabase
       .from("card_guessing")
@@ -71,7 +79,10 @@ export function CardGame() {
       .eq("session_id", sessionId)
       .single()
 
-    if (!error && data) {
+    if (error) {
+      console.error("Error fetching session data:", error)
+    } else if (data) {
+      console.log("Session data fetched:", data)
       setSessionData(data)
     }
   }, [sessionId])
@@ -229,13 +240,13 @@ export function CardGame() {
       </div>
 
       {/* Database Debug Section */}
-      {sessionData && (
-        <div className="mt-12 w-full max-w-4xl">
-          <h2 className="mb-2 text-xl font-semibold uppercase tracking-wide text-muted-foreground">
-            DATABASE RECORD (DEVELOPMENT)
-          </h2>
-          <p className="mb-6 text-sm text-muted-foreground">Verify that data is being saved to the database</p>
-          <div className="overflow-hidden rounded-2xl border border-border bg-card/50 p-8 shadow-sm backdrop-blur-sm">
+      <div className="mt-12 w-full max-w-4xl">
+        <h2 className="mb-2 text-xl font-semibold uppercase tracking-wide text-muted-foreground">
+          DATABASE RECORD (DEVELOPMENT)
+        </h2>
+        <p className="mb-6 text-sm text-muted-foreground">Verify that data is being saved to the database</p>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/50 p-8 shadow-sm backdrop-blur-sm">
+          {sessionData ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -278,9 +289,11 @@ export function CardGame() {
                 </tbody>
               </table>
             </div>
-          </div>
+          ) : (
+            <p className="text-center text-muted-foreground">Loading session data... (Check console for errors)</p>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
