@@ -45,39 +45,23 @@ export function CardGame() {
     const supabase = getSupabaseClient()
     const newSessionId = crypto.randomUUID()
 
-    console.log("[v0] Creating new session:", newSessionId)
-
     const { error } = await supabase.from("card_guessing").insert({ session_id: newSessionId, wins: 0, losses: 0 })
 
-    if (error) {
-      console.log("[v0] Error creating session:", error.message)
-    } else {
-      console.log("[v0] Session created successfully:", newSessionId)
+    if (!error) {
       setSessionId(newSessionId)
     }
   }, [])
 
   const updateSession = useCallback(
     async (wins: number, losses: number) => {
-      if (!sessionId) {
-        console.log("[v0] No sessionId, skipping update")
-        return
-      }
+      if (!sessionId) return
 
       const supabase = getSupabaseClient()
 
-      console.log("[v0] Updating session:", sessionId, "wins:", wins, "losses:", losses)
-
-      const { error } = await supabase
+      await supabase
         .from("card_guessing")
         .update({ wins, losses, updated_at: new Date().toISOString() })
         .eq("session_id", sessionId)
-
-      if (error) {
-        console.log("[v0] Error updating session:", error.message)
-      } else {
-        console.log("[v0] Session updated successfully")
-      }
     },
     [sessionId],
   )
