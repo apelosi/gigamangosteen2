@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { PlayingCard } from "./playing-card"
 import { CardSelector } from "./card-selector"
 import { ScoreDisplay } from "./score-display"
 import { cn } from "@/lib/utils"
+import { getSupabaseClient } from "@/lib/supabase/client"
 
 const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
 const suits = ["hearts", "diamonds", "clubs", "spades"]
@@ -27,6 +28,7 @@ function getRandomCard() {
 }
 
 export function CardGame() {
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const [gameState, setGameState] = useState<GameState>({
     currentCard: getRandomCard(),
     isFlipped: false,
@@ -39,20 +41,70 @@ export function CardGame() {
   const [selectedRank, setSelectedRank] = useState<string>("")
   const [selectedSuit, setSelectedSuit] = useState<string>("")
 
+  const createSession = useCallback(async () => {
+    const supabase = getSupabaseClient()
+    const newSessionId = crypto.randomUUID()
+
+    console.log("[v0] Creating new session:", newSessionId)
+
+    const { error } = await supabase.from("card_guessing").insert({ session_id: newSessionId, wins: 0, losses: 0 })
+
+    if (error) {
+      console.log("[v0] Error creating session:", error.message)
+    } else {
+      console.log("[v0] Session created successfully:", newSessionId)
+      setSessionId(newSessionId)
+    }
+  }, [])
+
+  const updateSession = useCallback(
+    async (wins: number, losses: number) => {
+      if (!sessionId) {
+        console.log("[v0] No sessionId, skipping update")
+        return
+      }
+
+      const supabase = getSupabaseClient()
+
+      console.log("[v0] Updating session:", sessionId, "wins:", wins, "losses:", losses)
+
+      const { error } = await supabase
+        .from("card_guessing")
+        .update({ wins, losses, updated_at: new Date().toISOString() })
+        .eq("session_id", sessionId)
+
+      if (error) {
+        console.log("[v0] Error updating session:", error.message)
+      } else {
+        console.log("[v0] Session updated successfully")
+      }
+    },
+    [sessionId],
+  )
+
+  useEffect(() => {
+    createSession()
+  }, [createSession])
+
   const handleGuess = useCallback(() => {
     if (!selectedRank || !selectedSuit) return
 
     const isCorrect = selectedRank === gameState.currentCard.rank && selectedSuit === gameState.currentCard.suit
+
+    const newCorrect = isCorrect ? gameState.correct + 1 : gameState.correct
+    const newIncorrect = isCorrect ? gameState.incorrect : gameState.incorrect + 1
 
     setGameState((prev) => ({
       ...prev,
       isFlipped: true,
       hasGuessed: true,
       lastResult: isCorrect ? "correct" : "incorrect",
-      correct: isCorrect ? prev.correct + 1 : prev.correct,
-      incorrect: isCorrect ? prev.incorrect : prev.incorrect + 1,
+      correct: newCorrect,
+      incorrect: newIncorrect,
     }))
-  }, [selectedRank, selectedSuit, gameState.currentCard])
+
+    updateSession(newCorrect, newIncorrect)
+  }, [selectedRank, selectedSuit, gameState.currentCard, gameState.correct, gameState.incorrect, updateSession])
 
   const handleNextCard = useCallback(() => {
     setSelectedRank("")
@@ -77,7 +129,8 @@ export function CardGame() {
       correct: 0,
       incorrect: 0,
     })
-  }, [])
+    createSession()
+  }, [createSession])
 
   return (
     <div className="flex flex-col items-center gap-6 sm:gap-8">
