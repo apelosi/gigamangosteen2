@@ -24,6 +24,8 @@ interface SessionData {
   session_id: string
   wins: number
   losses: number
+  guesses: string[]
+  actuals: string[]
   created_at: string
   updated_at: string
 }
@@ -55,7 +57,9 @@ export function CardGame() {
     const newSessionId = crypto.randomUUID()
 
     console.log("Creating session:", newSessionId)
-    const { error } = await supabase.from("card_guessing").insert({ session_id: newSessionId, wins: 0, losses: 0 })
+    const { error } = await supabase
+      .from("card_guessing")
+      .insert({ session_id: newSessionId, wins: 0, losses: 0, guesses: [], actuals: [] })
 
     if (error) {
       console.error("Error creating session:", error)
@@ -75,7 +79,7 @@ export function CardGame() {
     const supabase = getSupabaseClient()
     const { data, error } = await supabase
       .from("card_guessing")
-      .select("session_id, wins, losses, created_at, updated_at")
+      .select("session_id, wins, losses, guesses, actuals, created_at, updated_at")
       .eq("session_id", sessionId)
       .single()
 
@@ -88,14 +92,24 @@ export function CardGame() {
   }, [sessionId])
 
   const updateSession = useCallback(
-    async (wins: number, losses: number) => {
+    async (wins: number, losses: number, guess: string, actual: string) => {
       if (!sessionId) return
 
       const supabase = getSupabaseClient()
 
+      // First, get current arrays
+      const { data: currentData } = await supabase
+        .from("card_guessing")
+        .select("guesses, actuals")
+        .eq("session_id", sessionId)
+        .single()
+
+      const newGuesses = [...(currentData?.guesses || []), guess]
+      const newActuals = [...(currentData?.actuals || []), actual]
+
       await supabase
         .from("card_guessing")
-        .update({ wins, losses, updated_at: new Date().toISOString() })
+        .update({ wins, losses, guesses: newGuesses, actuals: newActuals, updated_at: new Date().toISOString() })
         .eq("session_id", sessionId)
 
       // Fetch updated data after update
@@ -122,6 +136,10 @@ export function CardGame() {
     const newCorrect = isCorrect ? gameState.correct + 1 : gameState.correct
     const newIncorrect = isCorrect ? gameState.incorrect : gameState.incorrect + 1
 
+    // Format guess and actual as "rank-suit"
+    const guess = `${selectedRank}-${selectedSuit}`
+    const actual = `${gameState.currentCard.rank}-${gameState.currentCard.suit}`
+
     setGameState((prev) => ({
       ...prev,
       isFlipped: true,
@@ -131,7 +149,7 @@ export function CardGame() {
       incorrect: newIncorrect,
     }))
 
-    updateSession(newCorrect, newIncorrect)
+    updateSession(newCorrect, newIncorrect, guess, actual)
   }, [selectedRank, selectedSuit, gameState.currentCard, gameState.correct, gameState.incorrect, updateSession])
 
   const handleNextCard = useCallback(() => {
@@ -254,6 +272,8 @@ export function CardGame() {
                     <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">session_id</th>
                     <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">wins</th>
                     <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">losses</th>
+                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">guesses</th>
+                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">actuals</th>
                     <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">created_at</th>
                     <th className="pb-4 text-left text-base font-normal text-muted-foreground">updated_at</th>
                   </tr>
@@ -263,6 +283,16 @@ export function CardGame() {
                     <td className="py-6 pr-8 font-mono text-sm text-foreground">{sessionData.session_id}</td>
                     <td className="py-6 pr-8 text-base text-foreground">{sessionData.wins}</td>
                     <td className="py-6 pr-8 text-base text-foreground">{sessionData.losses}</td>
+                    <td className="py-6 pr-8 text-base text-foreground">
+                      {sessionData.guesses && sessionData.guesses.length > 0
+                        ? `[${sessionData.guesses.join(", ")}]`
+                        : "[]"}
+                    </td>
+                    <td className="py-6 pr-8 text-base text-foreground">
+                      {sessionData.actuals && sessionData.actuals.length > 0
+                        ? `[${sessionData.actuals.join(", ")}]`
+                        : "[]"}
+                    </td>
                     <td className="py-6 pr-8 text-base text-foreground">
                       {new Date(sessionData.created_at).toLocaleString("en-US", {
                         month: "numeric",
