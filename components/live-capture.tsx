@@ -22,16 +22,6 @@ interface CapturedObject {
     description: string
 }
 
-interface MemoryRecord {
-    id: number
-    session_id: string
-    object_image_base64: string
-    object_description: string
-    object_memory: string
-    created_at: string
-    updated_at: string
-}
-
 // Audio context for playing capture tone
 let audioContext: AudioContext | null = null
 
@@ -67,7 +57,6 @@ export function LiveCapture() {
     const [stabilityProgress, setStabilityProgress] = useState(0)
     const [capturedImagePreview, setCapturedImagePreview] = useState<string | null>(null)
     const [transcribedMemory, setTranscribedMemory] = useState<string>("")
-    const [memories, setMemories] = useState<MemoryRecord[]>([])
     const [inputVolume, setInputVolume] = useState(0)
     const [outputVolume, setOutputVolume] = useState(0)
     const transcribedMemoryRef = useRef<string>("")
@@ -94,35 +83,6 @@ export function LiveCapture() {
         }
         setSessionId(existingSessionId)
     }, [])
-
-    // Fetch memories from the past 24 hours
-    const fetchMemories = useCallback(async () => {
-        const supabase = getSupabaseClient()
-
-        // Calculate 24 hours ago
-        const twentyFourHoursAgo = new Date()
-        twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
-
-        const { data, error } = await supabase
-            .from("object_memories")
-            .select("*")
-            .gte("created_at", twentyFourHoursAgo.toISOString())
-            .order("created_at", { ascending: false })
-            .limit(10)
-
-        if (error) {
-            console.error("Error fetching memories:", error)
-        } else if (data) {
-            setMemories(data)
-        }
-    }, [])
-
-    // Fetch memories on mount and poll for updates
-    useEffect(() => {
-        fetchMemories()
-        const interval = setInterval(fetchMemories, 3000)
-        return () => clearInterval(interval)
-    }, [fetchMemories])
 
     const captureVideoFrame = useCallback((): string | null => {
         if (!videoRef.current || !canvasRef.current) return null
@@ -509,9 +469,6 @@ CRITICAL INSTRUCTIONS:
             if (error) {
                 console.error("Error saving memory:", error)
                 alert("Failed to save memory")
-            } else {
-                // Immediately refresh memories list
-                fetchMemories()
             }
         } catch (error) {
             console.error("Error saving memory:", error)
@@ -525,7 +482,7 @@ CRITICAL INSTRUCTIONS:
         transcribedMemoryRef.current = ""
         capturedObjectRef.current = null
         setStabilityProgress(0)
-    }, [stopLiveCapture, sessionId, fetchMemories])
+    }, [stopLiveCapture, sessionId])
 
     const handleCancel = useCallback(() => {
         stopLiveCapture(true)
@@ -536,11 +493,6 @@ CRITICAL INSTRUCTIONS:
             stopLiveCapture(true)
         }
     }, [stopLiveCapture])
-
-    const truncateText = (text: string, maxLength: number = 50) => {
-        if (text.length <= maxLength) return text
-        return text.substring(0, maxLength) + "..."
-    }
 
     return (
         <div className="flex flex-col items-center gap-6 sm:gap-8">
@@ -689,85 +641,6 @@ CRITICAL INSTRUCTIONS:
                         <>Saving your memory...</>
                     )}
                 </p>
-            </div>
-
-            {/* Recent Memories Table */}
-            <div className="mt-12 w-full max-w-4xl">
-                <h2 className="mb-4 text-xl font-semibold tracking-wide text-foreground">
-                    Recent Memories
-                </h2>
-                {memories.length > 0 ? (
-                    <div className="overflow-x-auto rounded-lg border border-border shadow-sm">
-                        <table className="w-full border-collapse">
-                            <thead>
-                                <tr className="bg-muted/50 text-left">
-                                    <th className="border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
-                                        Image
-                                    </th>
-                                    <th className="border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
-                                        Description
-                                    </th>
-                                    <th className="border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
-                                        Memory
-                                    </th>
-                                    <th className="border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
-                                        Created
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {memories.map((record) => (
-                                    <tr
-                                        key={record.id}
-                                        className="transition-colors hover:bg-muted/30"
-                                    >
-                                        <td className="border-b border-border px-4 py-3">
-                                            <div className="h-16 w-16 overflow-hidden rounded-md bg-muted/30">
-                                                {record.object_image_base64 ? (
-                                                    <img
-                                                        src={`data:image/png;base64,${record.object_image_base64}`}
-                                                        alt={`Memory ${record.id}`}
-                                                        className="h-full w-full object-cover"
-                                                    />
-                                                ) : (
-                                                    <div className="flex h-full w-full items-center justify-center">
-                                                        <span className="text-2xl">🎙️</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="border-b border-border px-4 py-3 text-sm text-foreground">
-                                            <div className="max-w-xs break-words">
-                                                {truncateText(record.object_description || "Processing...")}
-                                            </div>
-                                        </td>
-                                        <td className="border-b border-border px-4 py-3 text-sm text-foreground">
-                                            <div className="max-w-xs break-words">
-                                                {truncateText(record.object_memory || "Processing...")}
-                                            </div>
-                                        </td>
-                                        <td className="border-b border-border px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                                            {new Date(record.created_at).toLocaleString("en-US", {
-                                                month: "short",
-                                                day: "numeric",
-                                                hour: "numeric",
-                                                minute: "2-digit",
-                                                hour12: true,
-                                            })}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                ) : (
-                    <div className="rounded-xl border-2 border-dashed border-border bg-muted/20 p-8 text-center">
-                        <span className="text-4xl">🎙️</span>
-                        <p className="mt-4 text-muted-foreground">
-                            No memories yet. Start capturing objects to see them appear here!
-                        </p>
-                    </div>
-                )}
             </div>
         </div>
     )
