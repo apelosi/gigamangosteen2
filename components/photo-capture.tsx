@@ -37,15 +37,18 @@ export function PhotoCapture() {
         setSessionId(existingSessionId)
     }, [])
 
-    // Fetch memories when session ID is available
+    // Fetch memories from the past 24 hours
     const fetchMemories = useCallback(async () => {
-        if (!sessionId) return
-
         const supabase = getSupabaseClient()
+
+        // Calculate 24 hours ago
+        const twentyFourHoursAgo = new Date()
+        twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
+
         const { data, error } = await supabase
             .from("object_memories")
             .select("*")
-            .eq("session_id", sessionId)
+            .gte("created_at", twentyFourHoursAgo.toISOString())
             .order("created_at", { ascending: false })
             .limit(10)
 
@@ -54,17 +57,15 @@ export function PhotoCapture() {
         } else if (data) {
             setMemories(data)
         }
-    }, [sessionId])
+    }, [])
 
-    // Fetch memories on mount and when session ID changes
+    // Fetch memories on mount and poll for updates
     useEffect(() => {
-        if (sessionId) {
-            fetchMemories()
-            // Poll for updates every 3 seconds to show new memories
-            const interval = setInterval(fetchMemories, 3000)
-            return () => clearInterval(interval)
-        }
-    }, [sessionId, fetchMemories])
+        fetchMemories()
+        // Poll for updates every 3 seconds to show new memories
+        const interval = setInterval(fetchMemories, 3000)
+        return () => clearInterval(interval)
+    }, [fetchMemories])
 
     // Cleanup camera stream when component unmounts or mode changes
     useEffect(() => {

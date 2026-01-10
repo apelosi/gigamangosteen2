@@ -61,6 +61,8 @@ export function LiveCapture() {
     const [sessionId, setSessionId] = useState<string | null>(null)
     const [objectCaptured, setObjectCaptured] = useState(false)
     const [stabilityProgress, setStabilityProgress] = useState(0)
+    const [capturedImagePreview, setCapturedImagePreview] = useState<string | null>(null)
+    const [transcribedMemory, setTranscribedMemory] = useState<string>("")
 
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -243,6 +245,8 @@ CRITICAL INSTRUCTIONS:
         setObjectCaptured(false)
         setCapturedMemory(null)
         setStabilityProgress(0)
+        setCapturedImagePreview(null)
+        setTranscribedMemory("")
 
         try {
             // Start camera
@@ -280,23 +284,20 @@ CRITICAL INSTRUCTIONS:
             clientRef.current.on("content", (text) => {
                 console.log("Received content:", text)
 
-                // Check for memory transcription (after object captured)
-                const memoryMatch = text.match(/\{[\s\S]*"memory"[\s\S]*\}/)
-                if (memoryMatch && capturedObjectRef.current) {
-                    try {
-                        const data = JSON.parse(memoryMatch[0])
-                        if (data.memory) {
-                            setCapturedMemory({
-                                imageBase64: capturedObjectRef.current.imageBase64,
-                                description: capturedObjectRef.current.description,
-                                memory: data.memory
-                            })
-                            setState("saved")
-                            setStatusMessage("Memory captured! Review and save below.")
-                            stopLiveCapture(false)
+                // After object is captured, accumulate transcribed memory text
+                if (capturedObjectRef.current) {
+                    // Try to parse JSON response first
+                    const memoryMatch = text.match(/\{[\s\S]*"memory"[\s\S]*\}/)
+                    if (memoryMatch) {
+                        try {
+                            const data = JSON.parse(memoryMatch[0])
+                            if (data.memory) {
+                                setTranscribedMemory(data.memory)
+                            }
+                        } catch (e) {
+                            // Not JSON, might be acknowledgment - ignore
+                            console.log("Non-JSON response:", text)
                         }
-                    } catch (e) {
-                        console.error("Failed to parse memory JSON:", e)
                     }
                 }
             })
@@ -396,6 +397,13 @@ CRITICAL INSTRUCTIONS:
                                         imageBase64: fullFrame,
                                         description: description
                                     }
+
+                                    // Stop video stream and show captured image
+                                    if (streamRef.current) {
+                                        streamRef.current.getTracks().forEach(track => track.stop())
+                                        streamRef.current = null
+                                    }
+                                    setCapturedImagePreview(fullFrame)
                                     setObjectCaptured(true)
 
                                     // Play capture tone
@@ -403,7 +411,7 @@ CRITICAL INSTRUCTIONS:
 
                                     // Update state and prompt
                                     setState("recording")
-                                    setStatusMessage("Object captured! Now speak your memory. Say 'done' when finished.")
+                                    setStatusMessage("Object captured! Now speak your memory. Tap Done when finished.")
 
                                     // Reconnect with new prompt for memory transcription
                                     if (clientRef.current) {
@@ -467,7 +475,7 @@ CRITICAL INSTRUCTIONS:
         setOutputVolume(0)
     }, [])
 
-    const handleStopRecording = useCallback(() => {
+    const handleDone = useCallback(async () => {
         if (!capturedObjectRef.current) {
             // No object was captured
             setState("error")
@@ -476,11 +484,59 @@ CRITICAL INSTRUCTIONS:
             setTimeout(() => {
                 setState("idle")
                 setStatusMessage("Click Start to begin capturing")
+                setCapturedImagePreview(null)
             }, 3000)
-        } else {
-            // Object captured but user stopped early - tell them to say "done"
-            setStatusMessage("Say 'done' or 'save' to finish recording your memory.")
+            return
         }
+
+        // Object captured - save it with whatever memory was transcribed
+        setState("processing")
+        setStatusMessage("Saving memory...")
+
+        // Stop all live capture resources
+        stopLiveCapture(false)
+
+        try {
+            const supabase = getSupabaseClient()
+            const { error } = await supabase
+                .from("object_memories")
+                .insert({
+                    session_id: sessionId,
+                    object_image_base64: capturedObjectRef.current.imageBase64,
+                    object_description: capturedObjectRef.current.description,
+                    object_memory: transcribedMemory || "No memory recorded",
+                })
+
+            if (error) {
+                console.error("Error saving memory:", error)
+                setState("error")
+                setStatusMessage("Failed to save memory")
+            } else {
+                setState("saved")
+                setStatusMessage("Memory saved!")
+
+                // Show success briefly then reset
+                setTimeout(() => {
+                    setState("idle")
+                    setStatusMessage("Click Start to capture another object")
+                    setCapturedMemory(null)
+                    setObjectCaptured(false)
+                    setCapturedImagePreview(null)
+                    setTranscribedMemory("")
+                    capturedObjectRef.current = null
+                }, 2000)
+            }
+        } catch (error) {
+            console.error("Error saving memory:", error)
+            setState("error")
+            setStatusMessage("Failed to save memory")
+        }
+    }, [stopLiveCapture, sessionId, transcribedMemory])
+
+    const handleCancel = useCallback(() => {
+        stopLiveCapture(true)
+        setCapturedImagePreview(null)
+        setTranscribedMemory("")
     }, [stopLiveCapture])
 
     const saveMemory = useCallback(async () => {
@@ -566,16 +622,16 @@ CRITICAL INSTRUCTIONS:
 
             {/* Video Display or Captured Image */}
             <div className="relative flex h-[280px] w-[280px] items-center justify-center overflow-hidden rounded-2xl border-2 border-border bg-black shadow-lg sm:h-[350px] sm:w-[350px]">
-                {state === "idle" && !capturedMemory ? (
+                {state === "idle" && !capturedImagePreview ? (
                     <div className="flex flex-col items-center gap-4 p-8 text-center">
                         <span className="text-6xl">🎙️</span>
                         <p className="text-lg font-medium text-white/70">
                             Live voice capture
                         </p>
                     </div>
-                ) : capturedMemory ? (
+                ) : capturedImagePreview ? (
                     <img
-                        src={`data:image/png;base64,${capturedMemory.imageBase64}`}
+                        src={`data:image/png;base64,${capturedImagePreview}`}
                         alt="Captured object"
                         className="h-full w-full object-cover"
                     />
@@ -590,7 +646,7 @@ CRITICAL INSTRUCTIONS:
                 )}
 
                 {/* State indicator */}
-                {state !== "idle" && !capturedMemory && (
+                {state !== "idle" && state !== "saved" && (
                     <div className="absolute top-4 left-4 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5">
                         <div className={`h-3 w-3 rounded-full ${getStateColor()} ${(state === "recording" || state === "scanning") ? "animate-pulse" : ""}`} />
                         <span className="text-sm font-medium text-white">{getStateLabel()}</span>
@@ -598,14 +654,14 @@ CRITICAL INSTRUCTIONS:
                 )}
 
                 {/* Object captured indicator */}
-                {objectCaptured && !capturedMemory && (
+                {objectCaptured && state === "recording" && (
                     <div className="absolute top-4 right-4 flex items-center gap-2 rounded-full bg-green-500/90 px-3 py-1.5">
-                        <span className="text-sm font-medium text-white">Object Captured</span>
+                        <span className="text-sm font-medium text-white">Speak Your Memory</span>
                     </div>
                 )}
 
                 {/* Stability progress indicator during scanning */}
-                {state === "scanning" && !objectCaptured && (
+                {state === "scanning" && !objectCaptured && !capturedImagePreview && (
                     <div className="absolute bottom-4 left-4 right-4">
                         <div className="flex items-center gap-2 rounded-lg bg-black/70 px-3 py-2">
                             <span className="text-xs text-white/70">Stability:</span>
@@ -626,16 +682,12 @@ CRITICAL INSTRUCTIONS:
                 <p className="text-lg text-muted-foreground">{statusMessage}</p>
             </div>
 
-            {/* Captured Memory Preview */}
-            {capturedMemory && (
-                <div className="w-full max-w-md space-y-4">
+            {/* Transcribed Memory Preview (shown while recording) */}
+            {transcribedMemory && state === "recording" && (
+                <div className="w-full max-w-md">
                     <div className="rounded-lg border border-border bg-muted/30 p-4">
-                        <label className="mb-2 block text-sm font-medium text-muted-foreground">Object Description</label>
-                        <p className="text-foreground">{capturedMemory.description}</p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-muted/30 p-4">
-                        <label className="mb-2 block text-sm font-medium text-muted-foreground">Your Memory</label>
-                        <p className="text-foreground italic">"{capturedMemory.memory}"</p>
+                        <label className="mb-2 block text-sm font-medium text-muted-foreground">Your Memory (transcribed)</label>
+                        <p className="text-foreground italic">"{transcribedMemory}"</p>
                     </div>
                 </div>
             )}
@@ -666,22 +718,21 @@ CRITICAL INSTRUCTIONS:
 
             {/* Control Buttons */}
             <div className="flex gap-4">
-                {capturedMemory ? (
-                    <>
-                        <Button size="lg" variant="outline" onClick={discardMemory} className="min-w-32">
-                            Discard
-                        </Button>
-                        <Button size="lg" onClick={saveMemory} className="min-w-32">
-                            Save Memory
-                        </Button>
-                    </>
-                ) : state === "idle" || state === "error" ? (
-                    <Button size="lg" onClick={startLiveCapture} className="min-w-40">
-                        Start Recording
+                {state === "idle" || state === "error" || state === "saved" ? (
+                    <Button size="lg" onClick={startLiveCapture} className="min-w-40" disabled={state === "saved"}>
+                        {state === "saved" ? "Saved!" : "Start Recording"}
+                    </Button>
+                ) : state === "processing" ? (
+                    <Button size="lg" disabled className="min-w-40">
+                        Saving...
+                    </Button>
+                ) : objectCaptured ? (
+                    <Button size="lg" onClick={handleDone} className="min-w-40">
+                        Done
                     </Button>
                 ) : (
-                    <Button size="lg" variant="destructive" onClick={handleStopRecording} className="min-w-40">
-                        {objectCaptured ? "Finish" : "Cancel"}
+                    <Button size="lg" variant="outline" onClick={handleCancel} className="min-w-40">
+                        Cancel
                     </Button>
                 )}
             </div>
@@ -689,14 +740,16 @@ CRITICAL INSTRUCTIONS:
             {/* Instructions */}
             <div className="mt-4 max-w-md rounded-lg bg-muted/50 p-4 text-center">
                 <p className="text-sm text-muted-foreground">
-                    {state === "idle" && !capturedMemory ? (
-                        <>Start recording, then <strong>hold an object steady</strong> until you hear a tone. Then <strong>speak your memory</strong> and say <strong>"done"</strong> when finished.</>
+                    {state === "idle" ? (
+                        <>Start recording, then <strong>hold an object steady</strong> until you hear a tone. Then <strong>speak your memory</strong> and tap <strong>Done</strong> when finished.</>
                     ) : state === "scanning" ? (
                         <>Hold the object <strong>steady and in focus</strong>. A tone will play when captured.</>
                     ) : state === "recording" && objectCaptured ? (
-                        <>Object captured! <strong>Speak your memory</strong> now. Say <strong>"done"</strong> when finished.</>
-                    ) : capturedMemory ? (
-                        <>Review the captured memory above. Click <strong>Save</strong> to keep it or <strong>Discard</strong> to try again.</>
+                        <>Object captured! <strong>Speak your memory</strong> now. Tap <strong>Done</strong> when finished.</>
+                    ) : state === "saved" ? (
+                        <>Memory saved! You can start capturing another object.</>
+                    ) : state === "processing" ? (
+                        <>Saving your memory...</>
                     ) : (
                         <>Hold the object steady in frame...</>
                     )}
