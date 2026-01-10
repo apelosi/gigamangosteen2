@@ -377,7 +377,7 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - No user authentication (public database access)
 - No error handling for Supabase connection failures
 - No rate limiting on AI generation
-- **Live Mode voice transcription**: Memory text sometimes not captured - Gemini Live API may not be outputting JSON transcriptions consistently. The content handler tries to parse JSON `{"memory": "..."}` and falls back to accumulating plain text, but this needs further debugging to ensure reliable transcription.
+
 
 ### Resolution History
 - 2026-01-10: Added environment variables setup instructions to CLAUDE.md for local development
@@ -414,6 +414,8 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - 2026-01-10: Updated Recent Memories table to show memories from past 24 hours instead of session-filtered
 - 2026-01-10: Fixed Live Mode capture flow - shows captured image after tone, single Done button to save
 - 2026-01-10: Updated Live Mode transcription prompt to continuously output JSON updates
+- 2026-01-10: Fixed Live Mode voice transcription by forcing [Modality.TEXT] in Gemini Live API connection
+- 2026-01-10: Fixed UI bug where "Saving" message appeared multiple times on capture screen
 
 ## Troubleshooting
 

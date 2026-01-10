@@ -23,6 +23,7 @@ export interface LiveClientConfig {
         description: string
         parameters?: Record<string, unknown>
     }>
+    responseModalities?: Modality[]
 }
 
 export class LiveClient {
@@ -55,7 +56,7 @@ export class LiveClient {
         const model = config.model || "gemini-2.0-flash-exp"
 
         const connectConfig: LiveConnectConfig = {
-            responseModalities: [Modality.AUDIO],
+            responseModalities: config.responseModalities || [Modality.AUDIO],
             speechConfig: {
                 voiceConfig: {
                     prebuiltVoiceConfig: {

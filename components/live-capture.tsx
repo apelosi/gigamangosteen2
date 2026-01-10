@@ -6,6 +6,7 @@ import { LiveClient } from "@/lib/live-api/live-client"
 import { AudioRecorder } from "@/lib/live-api/audio-recorder"
 import { AudioStreamer } from "@/lib/live-api/audio-streamer"
 import { getSupabaseClient } from "@/lib/supabase/client"
+import { Modality } from "@google/genai"
 
 // Simplified states for cleaner flow
 type LiveCaptureState = "idle" | "scanning" | "recording" | "saving"
@@ -343,7 +344,8 @@ CRITICAL INSTRUCTIONS:
             // Connect to Gemini Live API
             await clientRef.current.connect({
                 model: "gemini-2.0-flash-exp",
-                systemInstruction: buildSystemPrompt(false)
+                systemInstruction: buildSystemPrompt(false),
+                responseModalities: [Modality.TEXT]
             })
 
             // Start audio recording
@@ -419,7 +421,8 @@ CRITICAL INSTRUCTIONS:
                                         clientRef.current.disconnect()
                                         await clientRef.current.connect({
                                             model: "gemini-2.0-flash-exp",
-                                            systemInstruction: buildSystemPrompt(true)
+                                            systemInstruction: buildSystemPrompt(true),
+                                            responseModalities: [Modality.TEXT]
                                         })
                                     }
                                 }
@@ -557,7 +560,6 @@ CRITICAL INSTRUCTIONS:
                     {state === "idle" && "Tap Start Recording to begin"}
                     {state === "scanning" && "Hold the object steady..."}
                     {state === "recording" && "Speak your memory, then tap Done"}
-                    {state === "saving" && "Saving..."}
                 </p>
             </div>
 
@@ -636,9 +638,6 @@ CRITICAL INSTRUCTIONS:
                     )}
                     {state === "recording" && (
                         <>Object captured! <strong>Speak your memory</strong> now. Tap <strong>Done</strong> when finished.</>
-                    )}
-                    {state === "saving" && (
-                        <>Saving your memory...</>
                     )}
                 </p>
             </div>
