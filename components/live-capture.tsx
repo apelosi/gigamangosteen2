@@ -17,12 +17,6 @@ interface CapturedObject {
     description: string
 }
 
-interface CapturedMemory {
-    imageBase64: string
-    description: string
-    memory: string
-}
-
 // Audio context for playing capture tone
 let audioContext: AudioContext | null = null
 
@@ -57,12 +51,12 @@ export function LiveCapture() {
     const [statusMessage, setStatusMessage] = useState("Click Start to begin capturing")
     const [inputVolume, setInputVolume] = useState(0)
     const [outputVolume, setOutputVolume] = useState(0)
-    const [capturedMemory, setCapturedMemory] = useState<CapturedMemory | null>(null)
     const [sessionId, setSessionId] = useState<string | null>(null)
     const [objectCaptured, setObjectCaptured] = useState(false)
     const [stabilityProgress, setStabilityProgress] = useState(0)
     const [capturedImagePreview, setCapturedImagePreview] = useState<string | null>(null)
     const [transcribedMemory, setTranscribedMemory] = useState<string>("")
+    const transcribedMemoryRef = useRef<string>("")
 
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -241,10 +235,10 @@ CRITICAL INSTRUCTIONS:
         stableFrameCountRef.current = 0
         processingCaptureRef.current = false
         setObjectCaptured(false)
-        setCapturedMemory(null)
         setStabilityProgress(0)
         setCapturedImagePreview(null)
         setTranscribedMemory("")
+        transcribedMemoryRef.current = ""
 
         try {
             // Start camera
@@ -291,12 +285,14 @@ CRITICAL INSTRUCTIONS:
                             const data = JSON.parse(memoryMatch[0])
                             if (data.memory) {
                                 console.log("Transcribed memory update:", data.memory)
+                                transcribedMemoryRef.current = data.memory
                                 setTranscribedMemory(data.memory)
                             }
                         } catch (e) {
                             // Try to extract memory from regex match directly
                             if (memoryMatch[1]) {
                                 console.log("Extracted memory from regex:", memoryMatch[1])
+                                transcribedMemoryRef.current = memoryMatch[1]
                                 setTranscribedMemory(memoryMatch[1])
                             } else {
                                 console.log("Failed to parse JSON, raw text:", text)
@@ -308,12 +304,11 @@ CRITICAL INSTRUCTIONS:
                         if (cleanText && !cleanText.startsWith("{") && cleanText.length > 5) {
                             // Accumulate plain text responses
                             console.log("Accumulating plain text:", cleanText)
-                            setTranscribedMemory(prev => {
-                                if (prev) {
-                                    return prev + " " + cleanText
-                                }
-                                return cleanText
-                            })
+                            const newMemory = transcribedMemoryRef.current
+                                ? transcribedMemoryRef.current + " " + cleanText
+                                : cleanText
+                            transcribedMemoryRef.current = newMemory
+                            setTranscribedMemory(newMemory)
                         }
                     }
                 }
@@ -515,13 +510,15 @@ CRITICAL INSTRUCTIONS:
 
         try {
             const supabase = getSupabaseClient()
+            const memoryText = transcribedMemoryRef.current || "No memory recorded"
+            console.log("Saving memory to database:", memoryText)
             const { error } = await supabase
                 .from("object_memories")
                 .insert({
                     session_id: sessionId,
                     object_image_base64: capturedObjectRef.current.imageBase64,
                     object_description: capturedObjectRef.current.description,
-                    object_memory: transcribedMemory || "No memory recorded",
+                    object_memory: memoryText,
                 })
 
             if (error) {
@@ -536,10 +533,10 @@ CRITICAL INSTRUCTIONS:
                 setTimeout(() => {
                     setState("idle")
                     setStatusMessage("Click Start to capture another object")
-                    setCapturedMemory(null)
                     setObjectCaptured(false)
                     setCapturedImagePreview(null)
                     setTranscribedMemory("")
+                    transcribedMemoryRef.current = ""
                     capturedObjectRef.current = null
                 }, 2000)
             }
@@ -554,50 +551,9 @@ CRITICAL INSTRUCTIONS:
         stopLiveCapture(true)
         setCapturedImagePreview(null)
         setTranscribedMemory("")
+        transcribedMemoryRef.current = ""
     }, [stopLiveCapture])
 
-    const saveMemory = useCallback(async () => {
-        if (!capturedMemory || !sessionId) return
-
-        setState("processing")
-        setStatusMessage("Saving memory...")
-
-        try {
-            const supabase = getSupabaseClient()
-            const { error } = await supabase
-                .from("object_memories")
-                .insert({
-                    session_id: sessionId,
-                    object_image_base64: capturedMemory.imageBase64,
-                    object_description: capturedMemory.description,
-                    object_memory: capturedMemory.memory,
-                })
-
-            if (error) {
-                console.error("Error saving memory:", error)
-                setState("error")
-                setStatusMessage("Failed to save memory")
-            } else {
-                setState("idle")
-                setStatusMessage("Memory saved! Click Start to capture another.")
-                setCapturedMemory(null)
-                setObjectCaptured(false)
-                capturedObjectRef.current = null
-            }
-        } catch (error) {
-            console.error("Error saving memory:", error)
-            setState("error")
-            setStatusMessage("Failed to save memory")
-        }
-    }, [capturedMemory, sessionId])
-
-    const discardMemory = useCallback(() => {
-        setCapturedMemory(null)
-        setObjectCaptured(false)
-        capturedObjectRef.current = null
-        setState("idle")
-        setStatusMessage("Click Start to begin capturing")
-    }, [])
 
     useEffect(() => {
         return () => {
