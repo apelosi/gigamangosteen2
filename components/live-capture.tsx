@@ -72,6 +72,7 @@ export function LiveCapture() {
     const capturedObjectRef = useRef<CapturedObject | null>(null)
     const previousFrameDataRef = useRef<ImageData | null>(null)
     const stableFrameCountRef = useRef(0)
+    const processingCaptureRef = useRef(false)
 
     // Initialize session ID on mount
     useEffect(() => {
