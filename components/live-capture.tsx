@@ -175,21 +175,19 @@ export function LiveCapture() {
 
     const buildSystemPrompt = useCallback((hasObjectCapture: boolean) => {
         if (hasObjectCapture) {
-            // After object is captured, just transcribe memory
-            return `You are an assistant for a memory capture application called Everbloom.
+            // After object is captured, transcribe memory continuously
+            return `You are a transcription assistant for a memory capture application called Everbloom.
 
-The object has already been captured. Your ONLY job now is to:
-1. Listen to the user speaking their memory about the object
-2. When they say "done", "save", "that's it", or similar, transcribe what they said
+The object has already been captured. Your ONLY job is to transcribe what the user says about their memory.
 
-When the user signals they're done, respond with EXACTLY this JSON format:
-{
-  "memory": "exact transcription of what the user said about their memory"
-}
-
-While recording, you can acknowledge briefly like "I'm listening" but keep it very short.
-Do NOT generate or make up memories - ONLY transcribe what the user actually said.
-IMPORTANT: Only output the JSON when the user explicitly says they're done.`
+CRITICAL INSTRUCTIONS:
+- After every few sentences the user speaks, output a JSON update with the full transcription so far
+- Output format MUST be: {"memory": "the full transcription of everything the user has said so far"}
+- Do NOT speak or make sounds - only output JSON text
+- Do NOT generate or make up content - ONLY transcribe exactly what the user says
+- Do NOT add any commentary, greetings, or acknowledgments
+- Keep updating the transcription as the user continues speaking
+- Include everything they say, even if it seems incomplete`
         } else {
             // Before object capture, analyze video for clear object
             return `You are an assistant for a memory capture application called Everbloom.
@@ -287,16 +285,35 @@ CRITICAL INSTRUCTIONS:
                 // After object is captured, accumulate transcribed memory text
                 if (capturedObjectRef.current) {
                     // Try to parse JSON response first
-                    const memoryMatch = text.match(/\{[\s\S]*"memory"[\s\S]*\}/)
+                    const memoryMatch = text.match(/\{[\s\S]*"memory"[\s\S]*:[\s\S]*"([\s\S]*)"[\s\S]*\}/)
                     if (memoryMatch) {
                         try {
                             const data = JSON.parse(memoryMatch[0])
                             if (data.memory) {
+                                console.log("Transcribed memory update:", data.memory)
                                 setTranscribedMemory(data.memory)
                             }
                         } catch (e) {
-                            // Not JSON, might be acknowledgment - ignore
-                            console.log("Non-JSON response:", text)
+                            // Try to extract memory from regex match directly
+                            if (memoryMatch[1]) {
+                                console.log("Extracted memory from regex:", memoryMatch[1])
+                                setTranscribedMemory(memoryMatch[1])
+                            } else {
+                                console.log("Failed to parse JSON, raw text:", text)
+                            }
+                        }
+                    } else {
+                        // If no JSON, check if it's plain text that might be transcription
+                        const cleanText = text.trim()
+                        if (cleanText && !cleanText.startsWith("{") && cleanText.length > 5) {
+                            // Accumulate plain text responses
+                            console.log("Accumulating plain text:", cleanText)
+                            setTranscribedMemory(prev => {
+                                if (prev) {
+                                    return prev + " " + cleanText
+                                }
+                                return cleanText
+                            })
                         }
                     }
                 }
