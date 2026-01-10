@@ -113,6 +113,10 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 /components             - React components
   ├── memory-generator.tsx - Legacy memory generation UI (not used on capture page)
   ├── photo-capture.tsx    - Photo upload/camera capture with AI analysis
+  ├── live-capture.tsx     - Live Mode capture with auto-detection and voice transcription
+  ├── capture-wrapper.tsx  - Mode toggle wrapper for Photo/Live capture modes
+  ├── live-recall.tsx      - Live Mode for Remember page (voice-activated recall)
+  ├── remember-wrapper.tsx - Mode toggle wrapper for Photo/Live remember modes
   ├── memories-table.tsx   - Table component for memories list page
   ├── header.tsx        - Navigation with scroll blur effect
   ├── footer.tsx        - Copyright footer
@@ -120,7 +124,11 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 
 /lib                    - Utilities & integrations
   ├── supabase/client.ts - Supabase browser client singleton
-  └── utils.ts          - cn() helper for Tailwind class merging
+  ├── utils.ts          - cn() helper for Tailwind class merging
+  └── live-api/         - Google Gemini Live API integration
+      ├── live-client.ts   - WebSocket client for Gemini Live API
+      ├── audio-recorder.ts - Microphone capture with PCM16 encoding
+      └── audio-streamer.ts - Audio playback from API responses
 
 /supabase/migrations    - Database migrations (managed by Supabase CLI)
 
@@ -129,6 +137,7 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 
 ### Application Flow
 
+#### Photo Mode (Capture)
 1. **Session Creation**: On component mount, generate UUID → stored in sessionStorage
 2. **Photo Selection**: User chooses to upload a photo or take one with camera
 3. **Camera Mode** (if Take Photo selected):
@@ -142,9 +151,25 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
    - UI resets to selection mode (user can capture more objects)
    - API calls Gemini to analyze image and generate description + memory
    - Results saved to Supabase database
-6. **Live Feedback**: A "Recent Memories" table below the capture interface polls every 3 seconds to show background processing results
+6. **Live Feedback**: A "Recent Memories" table below the capture interface polls every 3 seconds to show memories from past 24 hours
 7. **View Memories**: Users can visit /memories to see all saved objects in full table format
 8. **Edit Memory**: Click any memory row to view details and edit memory text at /memory/[id]
+
+#### Live Mode (Capture)
+1. **Start Recording**: User clicks "Start Recording" button
+2. **Scanning Phase**:
+   - Camera stream starts with stability detection
+   - Frame stability measured by comparing consecutive frames (avgDiff < 15)
+   - Visual progress bar shows stability progress
+3. **Auto-Capture**: After 3 stable frames (~1.5 seconds):
+   - Snapshot captured and sent to /api/analyze-object for description
+   - Audio tone plays to signal capture
+   - Video stream stops and captured image is displayed
+4. **Recording Phase**:
+   - Gemini Live API reconnects with transcription prompt
+   - User speaks their memory (transcribed in real-time via JSON updates)
+   - Transcribed text displayed in preview box
+5. **Save**: User taps "Done" button to save memory to database
 
 **State Management:**
 - Local React state (`useState`) for UI state and current capture
@@ -152,6 +177,7 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - Supabase for persistent session history
 - Image analysis happens server-side via API route
 - Background processing allows continuous capture workflow
+- Gemini Live API for real-time voice transcription via WebSocket
 
 ### Database Schema
 
@@ -222,12 +248,31 @@ await supabase
 
 ### Gemini API Integration
 
-The `/api/generate-object` route handles AI generation:
+**Server-side APIs:**
 
+The `/api/generate-object` route handles AI generation:
 1. Selects random object from predefined list
 2. Calls Gemini 2.0 Flash to generate description and memory as JSON
 3. Calls Gemini 2.0 Flash Image Generation to generate photorealistic image
 4. Returns `{ imageBase64, description, memory }`
+
+The `/api/analyze-object` route analyzes uploaded images:
+1. Receives base64 image from client
+2. Calls Gemini 2.0 Flash to analyze and describe the object
+3. Generates a nostalgic memory based on the object
+4. Returns `{ description, memory }`
+
+**Client-side Live API:**
+
+The `/lib/live-api/` library provides real-time voice interaction:
+- `LiveClient`: WebSocket connection to Gemini Live API (gemini-2.0-flash-exp)
+- `AudioRecorder`: Captures microphone at 16kHz, outputs PCM16 base64
+- `AudioStreamer`: Plays 24kHz PCM16 audio responses
+
+**Live API Configuration:**
+- Voice: "Kore" (configured in live-client.ts speechConfig)
+- Response modality: AUDIO
+- Requires `NEXT_PUBLIC_GEMINI_API_KEY` for client-side WebSocket connection
 
 ### Configuration Files
 
@@ -313,6 +358,9 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - Database debug section displaying current session record for local config verification
 - Memories table page showing all saved memories with truncated descriptions (72 chars)
 - Individual memory detail page at /memory/[id] for viewing and editing specific memories
+- Live Mode capture with auto-detection of stable frames and voice transcription
+- Remember page with Photo Mode and Live Mode for recalling memories
+- Recent Memories table shows memories from past 24 hours (not filtered by session)
 
 ### Architectural Decisions
 - **Server-side AI generation**: API route handles Gemini calls to protect API key
@@ -321,12 +369,15 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - **Tailwind-first styling**: No custom CSS, all styling via Tailwind utilities
 - **shadcn/ui for components**: Radix UI primitives with Tailwind styling
 - **Gemini API integration**: Server-side API route using Gemini 2.0 Flash and Imagen 3
+- **Frame stability detection**: Compares consecutive 64x48 frames, avgDiff < 15 threshold
+- **Dual API key strategy**: GEMINI_API_KEY for server-side, NEXT_PUBLIC_GEMINI_API_KEY for client-side Live API
 
 ### Outstanding Issues
 - No test coverage (unit, integration, or E2E)
 - No user authentication (public database access)
 - No error handling for Supabase connection failures
 - No rate limiting on AI generation
+- **Live Mode voice transcription**: Memory text sometimes not captured - Gemini Live API may not be outputting JSON transcriptions consistently. The content handler tries to parse JSON `{"memory": "..."}` and falls back to accumulating plain text, but this needs further debugging to ensure reliable transcription.
 
 ### Resolution History
 - 2026-01-10: Added environment variables setup instructions to CLAUDE.md for local development
@@ -360,6 +411,9 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - 2026-01-10: Added NEXT_PUBLIC_GEMINI_API_KEY for client-side Live API WebSocket connection
 - 2026-01-10: Implemented LiveCapture component with auto-detection of stable frames and audio tone feedback
 - 2026-01-10: Configured Gemini Live API voice to use "Kore" preset voice
+- 2026-01-10: Updated Recent Memories table to show memories from past 24 hours instead of session-filtered
+- 2026-01-10: Fixed Live Mode capture flow - shows captured image after tone, single Done button to save
+- 2026-01-10: Updated Live Mode transcription prompt to continuously output JSON updates
 
 ## Troubleshooting
 
@@ -386,3 +440,16 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - Verify Tailwind classes are correct (Tailwind 4 syntax)
 - Check CSS variable definitions in `globals.css`
 - Ensure PostCSS config includes `@tailwindcss/postcss` plugin
+
+**Live Mode capture issues:**
+- Check browser console for "Received content:" logs to see what Gemini returns
+- Verify NEXT_PUBLIC_GEMINI_API_KEY is set in .env
+- Frame stability threshold is 15 (avgDiff) - lower values = stricter stability requirement
+- Audio tone requires user interaction first (AudioContext policy)
+- Debug logging enabled via `DEBUG_STABILITY = true` in live-capture.tsx
+
+**Live Mode transcription not working:**
+- Check console for "Transcribed memory update:" or "Accumulating plain text:" logs
+- The system prompt tells Gemini to output `{"memory": "..."}` JSON
+- Content handler tries JSON parsing first, then falls back to plain text accumulation
+- Gemini may sometimes output audio responses instead of text - transcription relies on text content events
