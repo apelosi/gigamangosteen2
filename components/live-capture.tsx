@@ -56,6 +56,9 @@ export function LiveCapture() {
     const [state, setState] = useState<LiveCaptureState>("idle")
     const [sessionId, setSessionId] = useState<string | null>(null)
     const [stabilityProgress, setStabilityProgress] = useState(0)
+    const [capturedImagePreview, setCapturedImagePreview] = useState<string | null>(null)
+    const [transcribedMemory, setTranscribedMemory] = useState<string>("")
+    const [inputVolume, setInputVolume] = useState(0)
     const [outputVolume, setOutputVolume] = useState(0)
     const transcribedMemoryRef = useRef<string>("")
     const transcriptBufferRef = useRef<string>("")
@@ -194,7 +197,23 @@ If the image is blurry or unstable, stay silent.`
         }
     }, [])
 
-    // ...
+    const generateDescription = useCallback(async (imageBase64: string): Promise<string | null> => {
+        try {
+            const response = await fetch("/api/analyze-object", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ imageBase64 })
+            })
+
+            if (!response.ok) return null
+
+            const data = await response.json()
+            return data.description || null
+        } catch (e) {
+            console.error("Failed to generate description:", e)
+            return null
+        }
+    }, [])
 
     const stopLiveCapture = useCallback((resetAll = true) => {
         if (scanningTimeoutRef.current) {
