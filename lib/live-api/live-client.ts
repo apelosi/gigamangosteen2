@@ -56,6 +56,13 @@ export class LiveClient {
 
         const connectConfig: LiveConnectConfig = {
             responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: {
+                        voiceName: "Kore"
+                    }
+                }
+            }
         }
 
         if (config.systemInstruction) {

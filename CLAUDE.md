@@ -358,6 +358,8 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - 2026-01-10: Added Live Mode with Google Gemini Live API for real-time voice-activated memory recall
 - 2026-01-10: Created live-api library with AudioRecorder, AudioStreamer, and LiveClient classes
 - 2026-01-10: Added NEXT_PUBLIC_GEMINI_API_KEY for client-side Live API WebSocket connection
+- 2026-01-10: Implemented LiveCapture component with auto-detection of stable frames and audio tone feedback
+- 2026-01-10: Configured Gemini Live API voice to use "Kore" preset voice
 
 ## Troubleshooting
 
