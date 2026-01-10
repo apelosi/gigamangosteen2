@@ -60,6 +60,7 @@ export function LiveCapture() {
     const [capturedMemory, setCapturedMemory] = useState<CapturedMemory | null>(null)
     const [sessionId, setSessionId] = useState<string | null>(null)
     const [objectCaptured, setObjectCaptured] = useState(false)
+    const [stabilityProgress, setStabilityProgress] = useState(0)
 
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -238,8 +239,10 @@ CRITICAL INSTRUCTIONS:
         capturedObjectRef.current = null
         previousFrameDataRef.current = null
         stableFrameCountRef.current = 0
+        processingCaptureRef.current = false
         setObjectCaptured(false)
         setCapturedMemory(null)
+        setStabilityProgress(0)
 
         try {
             // Start camera
@@ -340,57 +343,88 @@ CRITICAL INSTRUCTIONS:
             })
             await recorderRef.current.start()
 
-            // Start frame analysis loop
-            frameIntervalRef.current = setInterval(async () => {
-                if (!clientRef.current?.connected) return
+            // Start frame analysis loop - runs independently of Gemini connection
+            frameIntervalRef.current = setInterval(() => {
+                // Skip if video not ready
+                if (!videoRef.current || videoRef.current.readyState < 2) {
+                    if (DEBUG_STABILITY) console.log("Video not ready yet")
+                    return
+                }
 
                 // Check frame stability
                 const stable = isFrameStable()
 
                 if (stable) {
                     stableFrameCountRef.current++
+                    setStabilityProgress(Math.min(stableFrameCountRef.current / 3, 1))
+                    if (DEBUG_STABILITY) {
+                        console.log(`Stable frame count: ${stableFrameCountRef.current}/3`)
+                    }
                 } else {
                     stableFrameCountRef.current = 0
+                    setStabilityProgress(0)
                 }
 
-                // If we haven't captured an object yet
-                if (!capturedObjectRef.current) {
-                    // Send frame to Gemini for analysis
-                    const smallFrame = captureSmallFrame()
-                    if (smallFrame) {
-                        clientRef.current?.sendRealtimeInput([
-                            { mimeType: "image/jpeg", data: smallFrame }
-                        ])
+                // If we haven't captured an object yet and not already processing
+                if (!capturedObjectRef.current && !processingCaptureRef.current) {
+                    // Send frame to Gemini for analysis (if connected)
+                    if (clientRef.current?.connected) {
+                        const smallFrame = captureSmallFrame()
+                        if (smallFrame) {
+                            clientRef.current?.sendRealtimeInput([
+                                { mimeType: "image/jpeg", data: smallFrame }
+                            ])
+                        }
                     }
 
                     // If frame has been stable for 1.5 seconds (3 frames at 500ms), capture it
                     if (stableFrameCountRef.current >= 3) {
+                        processingCaptureRef.current = true
+                        stableFrameCountRef.current = 0  // Reset to prevent re-triggering
+
                         const fullFrame = captureVideoFrame()
                         if (fullFrame) {
-                            // Generate description using existing API
-                            const description = await generateDescription(fullFrame)
+                            if (DEBUG_STABILITY) console.log("Capturing stable frame, generating description...")
+                            setStatusMessage("Object detected! Analyzing...")
 
-                            if (description) {
-                                capturedObjectRef.current = {
-                                    imageBase64: fullFrame,
-                                    description: description
+                            // Generate description using existing API (async but don't block interval)
+                            generateDescription(fullFrame).then(async (description) => {
+                                if (description) {
+                                    if (DEBUG_STABILITY) console.log("Description generated:", description)
+
+                                    capturedObjectRef.current = {
+                                        imageBase64: fullFrame,
+                                        description: description
+                                    }
+                                    setObjectCaptured(true)
+
+                                    // Play capture tone
+                                    playCaptureTone()
+
+                                    // Update state and prompt
+                                    setState("recording")
+                                    setStatusMessage("Object captured! Now speak your memory. Say 'done' when finished.")
+
+                                    // Reconnect with new prompt for memory transcription
+                                    if (clientRef.current) {
+                                        clientRef.current.disconnect()
+                                        await clientRef.current.connect({
+                                            model: "gemini-2.0-flash-exp",
+                                            systemInstruction: buildSystemPrompt(true)
+                                        })
+                                    }
+                                } else {
+                                    if (DEBUG_STABILITY) console.log("Failed to generate description, retrying...")
+                                    setStatusMessage("Couldn't identify object. Hold steady...")
                                 }
-                                setObjectCaptured(true)
-
-                                // Play capture tone
-                                playCaptureTone()
-
-                                // Update state and prompt
-                                setState("recording")
-                                setStatusMessage("Object captured! Now speak your memory. Say 'done' when finished.")
-
-                                // Reconnect with new prompt for memory transcription
-                                clientRef.current?.disconnect()
-                                await clientRef.current?.connect({
-                                    model: "gemini-2.0-flash-exp",
-                                    systemInstruction: buildSystemPrompt(true)
-                                })
-                            }
+                                processingCaptureRef.current = false
+                            }).catch((err) => {
+                                console.error("Error generating description:", err)
+                                processingCaptureRef.current = false
+                                setStatusMessage("Error analyzing. Hold steady...")
+                            })
+                        } else {
+                            processingCaptureRef.current = false
                         }
                     }
                 }
@@ -567,6 +601,22 @@ CRITICAL INSTRUCTIONS:
                 {objectCaptured && !capturedMemory && (
                     <div className="absolute top-4 right-4 flex items-center gap-2 rounded-full bg-green-500/90 px-3 py-1.5">
                         <span className="text-sm font-medium text-white">Object Captured</span>
+                    </div>
+                )}
+
+                {/* Stability progress indicator during scanning */}
+                {state === "scanning" && !objectCaptured && (
+                    <div className="absolute bottom-4 left-4 right-4">
+                        <div className="flex items-center gap-2 rounded-lg bg-black/70 px-3 py-2">
+                            <span className="text-xs text-white/70">Stability:</span>
+                            <div className="flex-1 h-2 rounded-full bg-white/20 overflow-hidden">
+                                <div
+                                    className={`h-full transition-all duration-200 ${stabilityProgress >= 1 ? 'bg-green-500' : 'bg-yellow-500'}`}
+                                    style={{ width: `${stabilityProgress * 100}%` }}
+                                />
+                            </div>
+                            {stabilityProgress >= 1 && <span className="text-xs text-green-400">Capturing...</span>}
+                        </div>
                     </div>
                 )}
             </div>
