@@ -353,6 +353,11 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - 2026-01-10: Removed "generated" mode - users can immediately start new captures after saving
 - 2026-01-10: Configured development server to run on port 3002 as per user env requirements
 - 2026-01-10: Added "Recent Memories" table to capture page with 3s background polling for live status updates
+- 2026-01-10: Built Remember feature with Photo Mode for image-based object matching
+- 2026-01-10: Created /api/match-object endpoint for AI-powered object matching against saved memories
+- 2026-01-10: Added Live Mode with Google Gemini Live API for real-time voice-activated memory recall
+- 2026-01-10: Created live-api library with AudioRecorder, AudioStreamer, and LiveClient classes
+- 2026-01-10: Added NEXT_PUBLIC_GEMINI_API_KEY for client-side Live API WebSocket connection
 
 ## Troubleshooting
 

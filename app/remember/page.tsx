@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { RememberCapture } from "@/components/remember-capture"
+import { RememberWrapper } from "@/components/remember-wrapper"
 
 export default function RememberPage() {
   return (
@@ -28,15 +28,15 @@ export default function RememberPage() {
               Remember
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-pretty text-base text-muted-foreground sm:text-lg md:text-xl">
-              Take a photo of an object to find its saved memory.
+              Find the memory associated with an object.
             </p>
           </div>
         </section>
 
-        {/* Remember Capture Section */}
+        {/* Remember Section */}
         <section className="px-4 py-8 sm:py-12 md:py-16">
           <div className="mx-auto max-w-4xl">
-            <RememberCapture />
+            <RememberWrapper />
           </div>
         </section>
       </main>
