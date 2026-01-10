@@ -178,25 +178,17 @@ export function LiveCapture() {
 
     const buildSystemPrompt = useCallback((hasObjectCapture: boolean) => {
         if (hasObjectCapture) {
-            return `You are a friendly memory companion.
+            return `You are a memory transcription companion.
             
-Phase 1: ACKNOWLEDGE
-- I will send you a text saying what object was captured.
-- You must immediately Say: "That's a [object], what does this remind you of?"
-- Do not add anything else.
-
-Phase 2: LISTEN & TRANSCRIBE
-- After speaking, listen to the user.
-- Your PRIMARY GOAL is to output the user's speech as a JSON field "memory".
-- Output JSON updates frequently: {"memory": "current transcript..."}
-- If you cannot output JSON, just output the plain text of what the user says.
-- Do NOT continue the conversation. Do NOT ask more questions. Just listen and transcribe.`
+TASK:
+1. First, when I tell you the object, say something like "That's a [object], what does it remind you of?"
+2. Then, listen silently and transcribe the user's speech.
+3. Output the transcription as a JSON object: {"memory": "..."}
+4. If the user stops speaking, output the final JSON.`
         } else {
             return `You are a camera assistant.
-1. VOICE COMMANDS: If I send you text starting with "Say", you must speak that exact phrase immediately.
-2. OBJECT DETECTION: Otherwise, analyze video frames. When you see a clear, stable object, respond with JSON:
-{ "objectDetected": true, "description": "..." }
-If the image is blurry or unstable, stay silent.`
+If I ask you to say something, speak it immediately.
+Otherwise, remain silent.`
         }
     }, [])
 
@@ -219,12 +211,41 @@ If the image is blurry or unstable, stay silent.`
     }, [])
 
     const stopLiveCapture = useCallback((resetAll = true) => {
+        // Clear all timers immediately
         if (scanningTimeoutRef.current) {
             clearTimeout(scanningTimeoutRef.current)
             scanningTimeoutRef.current = null
         }
         if (frameIntervalRef.current) {
-            // ...
+            clearInterval(frameIntervalRef.current)
+            frameIntervalRef.current = null
+        }
+
+        // Stop audio/video streams
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop())
+            streamRef.current = null
+        }
+        if (recorderRef.current) {
+            recorderRef.current.stop()
+        }
+        if (streamerRef.current) {
+            streamerRef.current.stop()
+        }
+
+        // Disconnect client
+        if (clientRef.current) {
+            clientRef.current.disconnect()
+        }
+
+        if (resetAll) {
+            setState("idle")
+            setCapturedImagePreview(null)
+            setTranscribedMemory("")
+            transcribedMemoryRef.current = ""
+            transcriptBufferRef.current = ""
+            capturedObjectRef.current = null
+            setStabilityProgress(0)
         }
     }, [])
 
@@ -235,26 +256,27 @@ If the image is blurry or unstable, stay silent.`
             return
         }
 
-        // Reset everything
-        if (scanningTimeoutRef.current) clearTimeout(scanningTimeoutRef.current)
-        capturedObjectRef.current = null
-        previousFrameDataRef.current = null
-        stableFrameCountRef.current = 0
-        processingCaptureRef.current = false
-        setStabilityProgress(0)
-        setCapturedImagePreview(null)
-        setTranscribedMemory("")
-        transcribedMemoryRef.current = ""
+        stopLiveCapture(true) // Ensure clean start
         setState("scanning")
 
         try {
+            // Audio Context for playback
+            if (!audioContext) {
+                audioContext = new AudioContext()
+            }
+            if (audioContext.state === "suspended") {
+                await audioContext.resume()
+            }
+
             // Start camera
             const mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: "environment" },
                 audio: false
             })
-            streamRef.current = mediaStream
+            // Note: We get a separate audio stream for the recorder later to avoid feedback loops if needed, 
+            // but usually we want to record mic input.
 
+            streamRef.current = mediaStream
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream
             }
@@ -414,6 +436,11 @@ If the image is blurry or unstable, stay silent.`
 
                                     // Switch to recording state
                                     setState("recording")
+
+                                    // CLEAR BUFFERS for clean transcription
+                                    transcriptBufferRef.current = ""
+                                    transcribedMemoryRef.current = ""
+                                    setTranscribedMemory("")
 
                                     // Reconnect with transcription prompt
                                     if (clientRef.current) {
