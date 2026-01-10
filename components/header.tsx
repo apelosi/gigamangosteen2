@@ -30,7 +30,7 @@ export function Header() {
             </span>
           </div>
           <nav aria-label="Main navigation">
-            <span className="text-sm text-[var(--color-header-foreground)]/70">Card Game v1.0</span>
+            <span className="text-sm text-[var(--color-header-foreground)]/70">Everbloom</span>
           </nav>
         </div>
       </div>
