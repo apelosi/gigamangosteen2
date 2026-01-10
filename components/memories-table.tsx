@@ -18,29 +18,12 @@ export function MemoriesTable() {
     const router = useRouter()
     const [memories, setMemories] = useState<MemoryRecord[]>([])
     const [isLoading, setIsLoading] = useState(true)
-    const [sessionId, setSessionId] = useState<string | null>(null)
-
-    // Get session ID from sessionStorage
-    useEffect(() => {
-        const existingSessionId = sessionStorage.getItem("kitchen_memory_session_id")
-        if (existingSessionId) {
-            setSessionId(existingSessionId)
-        } else {
-            setIsLoading(false)
-        }
-    }, [])
 
     const fetchMemories = useCallback(async () => {
-        if (!sessionId) {
-            setIsLoading(false)
-            return
-        }
-
         const supabase = getSupabaseClient()
         const { data, error } = await supabase
             .from("object_memories")
             .select("*")
-            .eq("session_id", sessionId)
             .order("created_at", { ascending: false })
 
         if (error) {
@@ -49,13 +32,11 @@ export function MemoriesTable() {
             setMemories(data)
         }
         setIsLoading(false)
-    }, [sessionId])
+    }, [])
 
     useEffect(() => {
-        if (sessionId) {
-            fetchMemories()
-        }
-    }, [sessionId, fetchMemories])
+        fetchMemories()
+    }, [fetchMemories])
 
     const truncateText = (text: string, maxLength: number = 72) => {
         if (text.length <= maxLength) return text

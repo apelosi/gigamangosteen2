@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { PhotoCapture } from "@/components/photo-capture"
+import { CaptureWrapper } from "@/components/capture-wrapper"
 
 export default function CapturePage() {
   return (
@@ -28,15 +28,15 @@ export default function CapturePage() {
               Capture
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-pretty text-base text-muted-foreground sm:text-lg md:text-xl">
-              Upload or photograph an object to generate AI-powered descriptions and nostalgic memories.
+              Create memories of your objects with AI assistance.
             </p>
           </div>
         </section>
 
-        {/* Photo Capture Section */}
+        {/* Capture Section */}
         <section className="px-4 py-8 sm:py-12 md:py-16">
           <div className="mx-auto max-w-4xl">
-            <PhotoCapture />
+            <CaptureWrapper />
           </div>
         </section>
       </main>
