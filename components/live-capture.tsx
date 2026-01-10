@@ -12,7 +12,7 @@ import { Modality } from "@google/genai"
 type LiveCaptureState = "idle" | "scanning" | "recording" | "saving"
 
 // Debug flag - set to true to see stability metrics in console
-const DEBUG_STABILITY = false
+const DEBUG_STABILITY = true
 
 // Stability settings - lower threshold and fewer frames needed
 const STABILITY_THRESHOLD = 20  // Higher = more lenient (was 15)
@@ -56,13 +56,62 @@ export function LiveCapture() {
     const [state, setState] = useState<LiveCaptureState>("idle")
     const [sessionId, setSessionId] = useState<string | null>(null)
     const [stabilityProgress, setStabilityProgress] = useState(0)
-    const [capturedImagePreview, setCapturedImagePreview] = useState<string | null>(null)
-    const [transcribedMemory, setTranscribedMemory] = useState<string>("")
-    const [inputVolume, setInputVolume] = useState(0)
     const [outputVolume, setOutputVolume] = useState(0)
     const transcribedMemoryRef = useRef<string>("")
+    const transcriptBufferRef = useRef<string>("")
 
     const videoRef = useRef<HTMLVideoElement>(null)
+
+    // ... (inside startLiveCapture)
+
+    clientRef.current.on("content", (text) => {
+        console.log("Received content chunk:", text)
+
+        // Accumulate all text
+        if (capturedObjectRef.current) {
+            transcriptBufferRef.current += text
+            const fullText = transcriptBufferRef.current
+
+            // Try to extract JSON from the full accumulated text
+            // Handles standard JSON and Markdown code blocks
+            const jsonMatch = fullText.match(/\{[\s\S]*"memory"[\s\S]*:[\s\S]*"([\s\S]*?)"[\s\S]*\}/) ||
+                fullText.match(/```json\s*(\{[\s\S]*\})\s*```/) ||
+                fullText.match(/(\{[\s\S]*"memory"[\s\S]*\})/);
+
+            if (jsonMatch) {
+                try {
+                    // Try parsing the matched JSON string
+                    const jsonStr = jsonMatch[1].startsWith("{") ? jsonMatch[1] : jsonMatch[0];
+                    // Clean up any potential trailing characters that break JSON
+                    const cleanJsonStr = jsonStr.substring(0, jsonStr.lastIndexOf("}") + 1);
+
+                    const data = JSON.parse(cleanJsonStr)
+                    if (data.memory) {
+                        console.log("Transcribed memory update:", data.memory)
+                        transcribedMemoryRef.current = data.memory
+                        setTranscribedMemory(data.memory)
+                    }
+                } catch (e) {
+                    // If strict parsing fails, try regex fallback on the buffer
+                    const memoryRegex = /"memory"\s*:\s*"([^"]*)"/;
+                    const match = fullText.match(memoryRegex);
+                    if (match && match[1]) {
+                        console.log("Extracted memory from regex:", match[1])
+                        transcribedMemoryRef.current = match[1]
+                        setTranscribedMemory(match[1])
+                    }
+                }
+            } else {
+                // Fallback: if no JSON structure found yet, just show the specific text if it looks like content
+                // But avoid showing JSON syntax characters
+                const cleanText = text.trim()
+                if (cleanText && !cleanText.includes("{") && !cleanText.includes("}") && !cleanText.includes('"')) {
+                    // This is risky as it might be mixing partial JSON with plain text
+                    // Better to rely on the buffer for the final output, but for live preview we capture what we can
+                }
+            }
+        }
+    })
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const prevCanvasRef = useRef<HTMLCanvasElement>(null)
     const clientRef = useRef<LiveClient | null>(null)
