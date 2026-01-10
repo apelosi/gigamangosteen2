@@ -15,7 +15,7 @@ This ensures future Claude instances have up-to-date context about the project's
 
 ## Project Overview
 
-This is a **Kitchen Memory Generator** - a hackathon application that uses Google Gemini AI to generate images of random kitchen objects along with nostalgic memories associated with them. Users can edit the generated memories.
+This is a **Memory Generator** - a hackathon application that uses Google Gemini AI to generate images of random objects along with nostalgic memories associated with them. Users can edit the generated memories.
 
 **Key Facts:**
 - Built with Next.js 16 App Router and React 19
@@ -62,8 +62,8 @@ SUPABASE_ACCESS_TOKEN=your_supabase_personal_access_token
 # Install dependencies
 pnpm install
 
-# Start development server (default: http://localhost:3000)
-pnpm dev
+# Start development server (default: http://localhost:3002)
+PORT=3002 pnpm dev
 
 # Build for production
 pnpm build
@@ -99,12 +99,21 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 /app                    - Next.js App Router pages
   ├── layout.tsx        - Root layout with analytics & metadata
   ├── page.tsx          - Home page with hero + memory generator
+  ├── capture/          - Memory capture page
+  │   └── page.tsx      - Memory generator UI
+  ├── memories/         - Memories list page
+  │   └── page.tsx      - Table view of all memories
+  ├── memory/[id]/      - Individual memory detail page
+  │   └── page.tsx      - View and edit single memory
   ├── api/              - API routes
-  │   └── generate-kitchen-object/route.ts - Gemini API integration
+  │   ├── generate-object/route.ts - Legacy random object generation
+  │   └── analyze-object/route.ts  - Analyze uploaded images with Gemini
   └── globals.css       - Global Tailwind styles with CSS variables
 
 /components             - React components
-  ├── memory-generator.tsx - Main memory generation UI (client component)
+  ├── memory-generator.tsx - Legacy memory generation UI (not used on capture page)
+  ├── photo-capture.tsx    - Photo upload/camera capture with AI analysis
+  ├── memories-table.tsx   - Table component for memories list page
   ├── header.tsx        - Navigation with scroll blur effect
   ├── footer.tsx        - Copyright footer
   └── ui/               - shadcn/ui components (Button, Select, Textarea)
@@ -120,30 +129,39 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 
 ### Application Flow
 
-1. **Session Creation**: On component mount, generate UUID → insert to Supabase `kitchen_memories` table
-2. **Generate Memory**: User clicks "Generate Memory" button
-3. **AI Generation**: API route calls Gemini to generate:
-   - Random kitchen object selection
-   - Description of the object
-   - Nostalgic memory associated with it
-   - 256x256 cartoonish image
-4. **Display**: Image, description, and memory shown in UI
-5. **Edit Memory**: User can edit the memory text in the textarea
-6. **Save**: Data persisted to Supabase database
+1. **Session Creation**: On component mount, generate UUID → stored in sessionStorage
+2. **Photo Selection**: User chooses to upload a photo or take one with camera
+3. **Camera Mode** (if Take Photo selected):
+   - Live camera stream displayed using MediaStream API
+   - User positions object and clicks Capture
+   - Frame captured to canvas and converted to base64
+   - Camera stream stopped
+4. **Preview Mode**: User can retake or save the captured/uploaded photo
+5. **Background Processing**: When saved:
+   - Image processing starts immediately in background
+   - UI resets to selection mode (user can capture more objects)
+   - API calls Gemini to analyze image and generate description + memory
+   - Results saved to Supabase database
+6. **Live Feedback**: A "Recent Memories" table below the capture interface polls every 3 seconds to show background processing results
+7. **View Memories**: Users can visit /memories to see all saved objects in full table format
+8. **Edit Memory**: Click any memory row to view details and edit memory text at /memory/[id]
 
 **State Management:**
-- Local React state (`useState`) for UI state and current generation
+- Local React state (`useState`) for UI state and current capture
+- MediaStream API for live camera access
 - Supabase for persistent session history
-- All generation happens server-side via API route
+- Image analysis happens server-side via API route
+- Background processing allows continuous capture workflow
 
 ### Database Schema
 
-Table: `kitchen_memories` (renamed from `card_guessing`)
+Table: `object_memories`
 ```sql
-session_id           UUID PRIMARY KEY (auto-generated)
-kitchen_images       TEXT[] DEFAULT '{}'  -- Base64-encoded images
-kitchen_descriptions TEXT[] DEFAULT '{}'  -- Object descriptions
-kitchen_memories     TEXT[] DEFAULT '{}'  -- Nostalgic memories (editable)
+id                   BIGSERIAL PRIMARY KEY
+session_id           UUID NOT NULL
+object_image_base64  TEXT DEFAULT ''      -- Base64-encoded image
+object_description   TEXT DEFAULT ''      -- Object description
+object_memory        TEXT DEFAULT ''      -- Nostalgic memory (editable)
 created_at           TIMESTAMPTZ DEFAULT NOW()
 updated_at           TIMESTAMPTZ DEFAULT NOW()
 ```
@@ -151,6 +169,7 @@ updated_at           TIMESTAMPTZ DEFAULT NOW()
 - Row Level Security (RLS) enabled
 - Public read/insert/update policies (no authentication required)
 - Index on `session_id` for fast lookups
+- Each memory is a separate record (same session_id for all records in a browser session)
 
 ### Component Architecture
 
@@ -176,33 +195,38 @@ const supabase = getSupabaseClient()
 
 **Common Operations:**
 ```typescript
-// Insert new session
-await supabase.from("kitchen_memories").insert({
-  session_id: newSessionId,
-  kitchen_images: [],
-  kitchen_descriptions: [],
-  kitchen_memories: [],
+// Insert new memory record
+await supabase.from("object_memories").insert({
+  session_id: sessionId,
+  object_image_base64: imageBase64,
+  object_description: description,
+  object_memory: memory,
 })
 
-// Update session with new memory
+// Update memory text
 await supabase
-  .from("kitchen_memories")
+  .from("object_memories")
   .update({
-    kitchen_images: newImages,
-    kitchen_descriptions: newDescriptions,
-    kitchen_memories: newMemories,
+    object_memory: newMemory,
     updated_at: new Date().toISOString(),
   })
+  .eq("id", recordId)
+
+// Fetch all memories for a session
+await supabase
+  .from("object_memories")
+  .select("*")
   .eq("session_id", sessionId)
+  .order("created_at", { ascending: false })
 ```
 
 ### Gemini API Integration
 
-The `/api/generate-kitchen-object` route handles AI generation:
+The `/api/generate-object` route handles AI generation:
 
-1. Selects random kitchen object from predefined list
+1. Selects random object from predefined list
 2. Calls Gemini 2.0 Flash to generate description and memory as JSON
-3. Calls Imagen 3 to generate 256x256 cartoonish image
+3. Calls Gemini 2.0 Flash Image Generation to generate photorealistic image
 4. Returns `{ imageBase64, description, memory }`
 
 ### Configuration Files
@@ -265,25 +289,30 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 
 **Current migrations:**
 - 20250110000001: Add guess/actual columns (legacy, columns removed)
-- 20250110000002: Add Gemini columns (kitchen_images, kitchen_descriptions, kitchen_memories)
+- 20250110000002: Add Gemini columns (legacy, schema changed)
 - 20250110000003: Remove card guessing columns, rename table to kitchen_memories
+- 20250110000004: Change to per-record schema with individual columns
+- 20250110000005: Rename table to object_memories, rename columns to object_image_base64, object_description, object_memory
 
 ### Known Limitations
 
 1. **No Testing**: No test framework configured (Jest/Vitest/Playwright)
 2. **Public Database Access**: RLS policies allow anyone to read/write (no authentication)
 3. **No Rate Limiting**: API route doesn't limit Gemini API calls
+4. **Port Configuration**: Application is configured to run on port 3002 via .env and dev scripts.
 
 ## Project Evolution Tracking
 
 ### Requirements
-- Kitchen memory generator with AI-generated content
+- Memory generator with AI-generated content (any objects, not limited to kitchen)
 - Google Gemini AI integration for image and text generation
 - Session persistence to Supabase database
 - Editable memory text after generation
 - Dark/light mode theme support
 - Mobile-responsive design
 - Database debug section displaying current session record for local config verification
+- Memories table page showing all saved memories with truncated descriptions (72 chars)
+- Individual memory detail page at /memory/[id] for viewing and editing specific memories
 
 ### Architectural Decisions
 - **Server-side AI generation**: API route handles Gemini calls to protect API key
@@ -311,12 +340,25 @@ SUPABASE_ACCESS_TOKEN=$(grep SUPABASE_ACCESS_TOKEN .env | cut -d= -f2) supabase 
 - 2026-01-10: Renamed database table from card_guessing to kitchen_memories
 - 2026-01-10: Removed wins, losses, guesses, actuals columns from database
 - 2026-01-10: Added SUPABASE_ACCESS_TOKEN to .env for CLI authentication
+- 2026-01-10: Renamed table from kitchen_memories to object_memories
+- 2026-01-10: Renamed columns: kitchen_image→object_image_base64, kitchen_description→object_description, kitchen_memory→object_memory
+- 2026-01-10: Renamed API endpoint from /api/generate-kitchen-object to /api/generate-object
+- 2026-01-10: Added memories table component to /memories page showing all saved memories with truncated text (72 chars)
+- 2026-01-10: Created dynamic route /memory/[id] for viewing and editing individual memories
+- 2026-01-10: Replaced auto-generation with photo upload/camera capture on /capture page
+- 2026-01-10: Created /api/analyze-object endpoint to analyze uploaded images with Gemini AI
+- 2026-01-10: Added PhotoCapture component with upload, camera, preview, retake, and save workflow
+- 2026-01-10: Implemented live camera streaming using MediaStream API with real-time preview
+- 2026-01-10: Added background processing - images analyzed while user can continue capturing more objects
+- 2026-01-10: Removed "generated" mode - users can immediately start new captures after saving
+- 2026-01-10: Configured development server to run on port 3002 as per user env requirements
+- 2026-01-10: Added "Recent Memories" table to capture page with 3s background polling for live status updates
 
 ## Troubleshooting
 
 **Supabase connection issues:**
 1. Check environment variables for Supabase URL and anon key
-2. Verify RLS policies are enabled on `kitchen_memories` table
+2. Verify RLS policies are enabled on `object_memories` table
 3. Ensure `getSupabaseClient()` is used consistently
 
 **Gemini API issues:**

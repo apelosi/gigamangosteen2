@@ -8,9 +8,9 @@ const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Card Guessing Game | Giga Mangosteen",
+  title: "GM2 | Everbloom",
   description:
-    "Test your psychic abilities by guessing cards from a standard 52-card deck. Built for hackathon by Giga Mangosteen Enterprises.",
+    "Generate AI-powered images of kitchen objects with nostalgic memories. Built for hackathon by Giga Mangosteen Enterprises.",
   generator: "v0.app",
   icons: {
     icon: [

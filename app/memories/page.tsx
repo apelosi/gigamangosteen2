@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
+import { MemoriesTable } from "@/components/memories-table"
 
 export default function MemoriesPage() {
   return (
@@ -26,6 +27,16 @@ export default function MemoriesPage() {
             <h1 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl md:text-5xl lg:text-6xl">
               Memories
             </h1>
+            <p className="mx-auto mt-4 max-w-2xl text-pretty text-base text-muted-foreground sm:text-lg">
+              Browse all your saved memories. Click on any row to view details.
+            </p>
+          </div>
+        </section>
+
+        {/* Memories Table Section */}
+        <section className="px-4 py-8 sm:py-12 md:py-16">
+          <div className="mx-auto max-w-6xl">
+            <MemoriesTable />
           </div>
         </section>
       </main>

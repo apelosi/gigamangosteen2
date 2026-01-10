@@ -8,9 +8,9 @@ import { getSupabaseClient } from "@/lib/supabase/client"
 interface MemoryRecord {
   id: number
   session_id: string
-  kitchen_image: string
-  kitchen_description: string
-  kitchen_memory: string
+  object_image_base64: string
+  object_description: string
+  object_memory: string
   created_at: string
   updated_at: string
 }
@@ -22,8 +22,10 @@ export function MemoryGenerator() {
   const [currentImage, setCurrentImage] = useState<string | null>(null)
   const [currentDescription, setCurrentDescription] = useState<string>("")
   const [currentMemory, setCurrentMemory] = useState<string>("")
+  const [originalMemory, setOriginalMemory] = useState<string>("")
   const [currentRecordId, setCurrentRecordId] = useState<number | null>(null)
   const [hasGenerated, setHasGenerated] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   // Initialize session ID on mount (persists for browser session)
   useEffect(() => {
@@ -46,7 +48,7 @@ export function MemoryGenerator() {
     console.log("Fetching memories for session:", sessionId)
     const supabase = getSupabaseClient()
     const { data, error } = await supabase
-      .from("kitchen_memories")
+      .from("object_memories")
       .select("*")
       .eq("session_id", sessionId)
       .order("created_at", { ascending: false })
@@ -72,12 +74,12 @@ export function MemoryGenerator() {
       const supabase = getSupabaseClient()
 
       const { data, error } = await supabase
-        .from("kitchen_memories")
+        .from("object_memories")
         .insert({
           session_id: sessionId,
-          kitchen_image: image,
-          kitchen_description: description,
-          kitchen_memory: memory,
+          object_image_base64: image,
+          object_description: description,
+          object_memory: memory,
         })
         .select()
         .single()
@@ -99,9 +101,9 @@ export function MemoryGenerator() {
       const supabase = getSupabaseClient()
 
       const { error } = await supabase
-        .from("kitchen_memories")
+        .from("object_memories")
         .update({
-          kitchen_memory: newMemory,
+          object_memory: newMemory,
           updated_at: new Date().toISOString(),
         })
         .eq("id", recordId)
@@ -122,12 +124,12 @@ export function MemoryGenerator() {
     setHasGenerated(false)
 
     try {
-      const response = await fetch("/api/generate-kitchen-object", {
+      const response = await fetch("/api/generate-object", {
         method: "POST",
       })
 
       if (!response.ok) {
-        throw new Error("Failed to generate kitchen object")
+        throw new Error("Failed to generate object")
       }
 
       const data = await response.json()
@@ -136,6 +138,7 @@ export function MemoryGenerator() {
       setCurrentImage(data.imageBase64 || null)
       setCurrentDescription(data.description || "")
       setCurrentMemory(data.memory || "")
+      setOriginalMemory(data.memory || "")
       setHasGenerated(true)
 
       // Save to database as a new record
@@ -156,11 +159,34 @@ export function MemoryGenerator() {
 
   const handleSaveMemoryEdit = useCallback(async () => {
     if (!currentRecordId) return
+    setIsSaving(true)
     await updateMemoryInDb(currentRecordId, currentMemory)
+    setOriginalMemory(currentMemory)
+    setIsSaving(false)
   }, [currentRecordId, currentMemory, updateMemoryInDb])
+
+  const handleCancelEdit = useCallback(() => {
+    setCurrentMemory(originalMemory)
+  }, [originalMemory])
+
+  const handleSelectMemory = useCallback((record: MemoryRecord) => {
+    setCurrentImage(record.object_image_base64 || null)
+    setCurrentDescription(record.object_description || "")
+    setCurrentMemory(record.object_memory || "")
+    setOriginalMemory(record.object_memory || "")
+    setCurrentRecordId(record.id)
+    setHasGenerated(true)
+  }, [])
+
+  const hasChanges = currentMemory !== originalMemory
 
   return (
     <div className="flex flex-col items-center gap-6 sm:gap-8">
+      {/* Generate Button - moved to top */}
+      <Button size="lg" onClick={handleGenerate} disabled={isGenerating} className="min-w-48">
+        {isGenerating ? "Generating..." : "Generate Memory"}
+      </Button>
+
       {/* Image Display */}
       <div className="relative flex h-[280px] w-[280px] items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-muted/30 sm:h-[350px] sm:w-[350px]">
         {isGenerating ? (
@@ -182,11 +208,6 @@ export function MemoryGenerator() {
         )}
       </div>
 
-      {/* Generate Button */}
-      <Button size="lg" onClick={handleGenerate} disabled={isGenerating} className="min-w-48">
-        {isGenerating ? "Generating..." : "Generate Memory"}
-      </Button>
-
       {/* Description (read-only) */}
       <div className="w-full max-w-md">
         <label className="mb-2 block text-sm font-medium text-muted-foreground">Description</label>
@@ -205,12 +226,32 @@ export function MemoryGenerator() {
           onChange={handleMemoryChange}
           placeholder="Memory will appear here after generation..."
           className="min-h-[120px] resize-none"
-          disabled={!hasGenerated}
+          disabled={!hasGenerated || isSaving}
         />
         {hasGenerated && (
-          <Button variant="outline" size="sm" onClick={handleSaveMemoryEdit} className="mt-2">
-            Save Edit
-          </Button>
+          <div className="mt-2 flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCancelEdit}
+              disabled={!hasChanges || isSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleSaveMemoryEdit}
+              disabled={!hasChanges || isSaving}
+              className="min-w-[80px]"
+            >
+              {isSaving ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -222,65 +263,70 @@ export function MemoryGenerator() {
         </p>
       </div>
 
-      {/* Database Debug Section */}
+      {/* Memories Gallery Section */}
       <div className="mt-12 w-full max-w-4xl">
-        <h2 className="mb-2 text-xl font-semibold uppercase tracking-wide text-muted-foreground">
-          DATABASE RECORDS (DEVELOPMENT)
+        <h2 className="mb-2 text-xl font-semibold tracking-wide text-foreground">
+          Your Memories
         </h2>
         <p className="mb-6 text-sm text-muted-foreground">
-          Session ID: <span className="font-mono">{sessionId || "Loading..."}</span> | Records: {memories.length}
+          Click on a memory to view and edit it
         </p>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/50 p-8 shadow-sm backdrop-blur-sm">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {memories.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border/50">
-                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">id</th>
-                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">kitchen_image</th>
-                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">
-                      kitchen_description
-                    </th>
-                    <th className="pb-4 pr-8 text-left text-base font-normal text-muted-foreground">kitchen_memory</th>
-                    <th className="pb-4 text-left text-base font-normal text-muted-foreground">created_at</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {memories.map((record) => (
-                    <tr key={record.id} className="border-b border-border/30">
-                      <td className="py-4 pr-8 font-mono text-sm text-foreground">{record.id}</td>
-                      <td className="py-4 pr-8 text-xs text-foreground">
-                        {record.kitchen_image ? (
-                          <img
-                            src={`data:image/png;base64,${record.kitchen_image}`}
-                            alt={`Kitchen object ${record.id}`}
-                            className="h-16 w-16 rounded object-cover"
-                          />
-                        ) : (
-                          <span className="text-muted-foreground">No image</span>
-                        )}
-                      </td>
-                      <td className="py-4 pr-8 text-sm text-foreground max-w-xs">{record.kitchen_description}</td>
-                      <td className="py-4 pr-8 text-sm text-foreground max-w-md italic">{record.kitchen_memory}</td>
-                      <td className="py-4 text-sm text-foreground">
-                        {new Date(record.created_at).toLocaleString("en-US", {
-                          month: "numeric",
-                          day: "numeric",
-                          year: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                          hour12: true,
-                        })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            memories.map((record) => (
+              <button
+                key={record.id}
+                onClick={() => handleSelectMemory(record)}
+                className={`group relative overflow-hidden rounded-xl border-2 bg-card/50 p-4 text-left shadow-sm transition-all hover:border-primary hover:shadow-md ${
+                  currentRecordId === record.id ? "border-primary ring-2 ring-primary/20" : "border-border"
+                }`}
+              >
+                {/* Image thumbnail */}
+                <div className="mb-3 aspect-square w-full overflow-hidden rounded-lg bg-muted/30">
+                  {record.object_image_base64 ? (
+                    <img
+                      src={`data:image/png;base64,${record.object_image_base64}`}
+                      alt={`Object ${record.id}`}
+                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <span className="text-4xl">🍳</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Memory preview */}
+                <p className="line-clamp-3 text-sm italic text-muted-foreground">
+                  {record.object_memory || "No memory text"}
+                </p>
+
+                {/* Date */}
+                <p className="mt-2 text-xs text-muted-foreground/70">
+                  {new Date(record.created_at).toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true,
+                  })}
+                </p>
+
+                {/* Selected indicator */}
+                {currentRecordId === record.id && (
+                  <div className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                    Selected
+                  </div>
+                )}
+              </button>
+            ))
           ) : (
-            <p className="text-center text-muted-foreground">
-              No memories yet. Click &quot;Generate Memory&quot; to create one.
-            </p>
+            <div className="col-span-full rounded-xl border-2 border-dashed border-border bg-muted/20 p-12 text-center">
+              <span className="text-4xl">🍳</span>
+              <p className="mt-4 text-muted-foreground">
+                No memories yet. Click &quot;Generate Memory&quot; to create your first one.
+              </p>
+            </div>
           )}
         </div>
       </div>
