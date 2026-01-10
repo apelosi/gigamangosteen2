@@ -178,16 +178,19 @@ export function LiveCapture() {
 
     const buildSystemPrompt = useCallback((hasObjectCapture: boolean) => {
         if (hasObjectCapture) {
-            return `You are a transcription assistant for a memory capture application.
+            return `You are a friendly memory companion.
             
-Phases:
-1. ACKNOWLEDGEMENT: At the very start, I will tell you what object was captured. You must say "That's a [object], what does this remind you of?" 
-2. TRANSCRIPTION: After that, your ONLY job is to transcribe what the user says.
+Phase 1: ACKNOWLEDGE
+- I will send you a text saying what object was captured.
+- You must immediately Say: "That's a [object], what does this remind you of?"
+- Do not add anything else.
 
-CRITICAL INSTRUCTIONS for TRANSCRIPTION:
-- After every few sentences, output a JSON update: {"memory": "full transcription..."}
-- Do NOT speak during transcription. Only output JSON text.
-- Include everything the user says.`
+Phase 2: LISTEN & TRANSCRIBE
+- After speaking, listen to the user.
+- Your PRIMARY GOAL is to output the user's speech as a JSON field "memory".
+- Output JSON updates frequently: {"memory": "current transcript..."}
+- If you cannot output JSON, just output the plain text of what the user says.
+- Do NOT continue the conversation. Do NOT ask more questions. Just listen and transcribe.`
         } else {
             return `You are a camera assistant.
 1. VOICE COMMANDS: If I send you text starting with "Say", you must speak that exact phrase immediately.
@@ -276,42 +279,31 @@ If the image is blurry or unstable, stay silent.`
                     transcriptBufferRef.current += text
                     const fullText = transcriptBufferRef.current
 
-                    // Try to extract JSON from the full accumulated text
-                    // Handles standard JSON and Markdown code blocks
-                    const jsonMatch = fullText.match(/\{[\s\S]*"memory"[\s\S]*:[\s\S]*"([\s\S]*?)"[\s\S]*\}/) ||
-                        fullText.match(/```json\s*(\{[\s\S]*\})\s*```/) ||
-                        fullText.match(/(\{[\s\S]*"memory"[\s\S]*\})/);
+                    // 1. Try to find the structured JSON memory
+                    const memoryMatch = fullText.match(/"memory"\s*:\s*"((?:[^"\\]|\\.)*)"/);
 
-                    if (jsonMatch) {
-                        try {
-                            // Try parsing the matched JSON string
-                            const jsonStr = jsonMatch[1].startsWith("{") ? jsonMatch[1] : jsonMatch[0];
-                            // Clean up any potential trailing characters that break JSON
-                            const cleanJsonStr = jsonStr.substring(0, jsonStr.lastIndexOf("}") + 1);
-
-                            const data = JSON.parse(cleanJsonStr)
-                            if (data.memory) {
-                                console.log("Transcribed memory update:", data.memory)
-                                transcribedMemoryRef.current = data.memory
-                                setTranscribedMemory(data.memory)
-                            }
-                        } catch (e) {
-                            // If strict parsing fails, try regex fallback on the buffer
-                            const memoryRegex = /"memory"\s*:\s*"([^"]*)"/;
-                            const match = fullText.match(memoryRegex);
-                            if (match && match[1]) {
-                                console.log("Extracted memory from regex:", match[1])
-                                transcribedMemoryRef.current = match[1]
-                                setTranscribedMemory(match[1])
-                            }
-                        }
+                    if (memoryMatch && memoryMatch[1]) {
+                        const memoryText = memoryMatch[1];
+                        console.log("Extracted memory JSON:", memoryText)
+                        transcribedMemoryRef.current = memoryText
+                        setTranscribedMemory(memoryText)
                     } else {
-                        // Fallback processing for incomplete chunks is risky with buffer approach
-                        // But we can check if the current chunk is just plain text
-                        const cleanText = text.trim()
-                        if (cleanText && !cleanText.includes("{") && !cleanText.includes("}") && !cleanText.includes('"')) {
-                            // Only accumulate if we have nothing better yet? 
-                            // Actually, let's just trust the buffer accumulation
+                        // 2. Strong Fallback: If no JSON structure is found yet, assume the model 
+                        // is streaming the transcription as plain text (which often happens).
+                        // We filter out expected protocol text or partial JSON to be clean.
+                        const cleanText = fullText
+                            .replace(/```json/g, "")
+                            .replace(/```/g, "")
+                            .replace(/"memory"\s*:/g, "")
+                            .replace(/[{}"]/g, " ") // simplistic cleaning of JSON structural chars
+                            .trim();
+
+                        if (cleanText.length > 0) {
+                            // Only update if it looks like actual content, not just protocol noise
+                            // This ensures we capture the "raw" transcription if the model refuses to JSONify
+                            console.log("Extracted raw memory:", cleanText)
+                            transcribedMemoryRef.current = cleanText
+                            setTranscribedMemory(cleanText)
                         }
                     }
                 }
