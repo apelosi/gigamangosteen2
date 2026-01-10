@@ -15,7 +15,7 @@ type LiveCaptureState = "idle" | "scanning" | "recording" | "saving"
 const DEBUG_STABILITY = true
 
 // Stability settings - lower threshold and fewer frames needed
-const STABILITY_THRESHOLD = 20  // Higher = more lenient (was 15)
+const STABILITY_THRESHOLD = 35  // Higher = more lenient (was 20)
 const STABLE_FRAMES_REQUIRED = 2  // Fewer frames needed (was 3)
 
 interface CapturedObject {
@@ -62,56 +62,7 @@ export function LiveCapture() {
 
     const videoRef = useRef<HTMLVideoElement>(null)
 
-    // ... (inside startLiveCapture)
 
-    clientRef.current.on("content", (text) => {
-        console.log("Received content chunk:", text)
-
-        // Accumulate all text
-        if (capturedObjectRef.current) {
-            transcriptBufferRef.current += text
-            const fullText = transcriptBufferRef.current
-
-            // Try to extract JSON from the full accumulated text
-            // Handles standard JSON and Markdown code blocks
-            const jsonMatch = fullText.match(/\{[\s\S]*"memory"[\s\S]*:[\s\S]*"([\s\S]*?)"[\s\S]*\}/) ||
-                fullText.match(/```json\s*(\{[\s\S]*\})\s*```/) ||
-                fullText.match(/(\{[\s\S]*"memory"[\s\S]*\})/);
-
-            if (jsonMatch) {
-                try {
-                    // Try parsing the matched JSON string
-                    const jsonStr = jsonMatch[1].startsWith("{") ? jsonMatch[1] : jsonMatch[0];
-                    // Clean up any potential trailing characters that break JSON
-                    const cleanJsonStr = jsonStr.substring(0, jsonStr.lastIndexOf("}") + 1);
-
-                    const data = JSON.parse(cleanJsonStr)
-                    if (data.memory) {
-                        console.log("Transcribed memory update:", data.memory)
-                        transcribedMemoryRef.current = data.memory
-                        setTranscribedMemory(data.memory)
-                    }
-                } catch (e) {
-                    // If strict parsing fails, try regex fallback on the buffer
-                    const memoryRegex = /"memory"\s*:\s*"([^"]*)"/;
-                    const match = fullText.match(memoryRegex);
-                    if (match && match[1]) {
-                        console.log("Extracted memory from regex:", match[1])
-                        transcribedMemoryRef.current = match[1]
-                        setTranscribedMemory(match[1])
-                    }
-                }
-            } else {
-                // Fallback: if no JSON structure found yet, just show the specific text if it looks like content
-                // But avoid showing JSON syntax characters
-                const cleanText = text.trim()
-                if (cleanText && !cleanText.includes("{") && !cleanText.includes("}") && !cleanText.includes('"')) {
-                    // This is risky as it might be mixing partial JSON with plain text
-                    // Better to rely on the buffer for the final output, but for live preview we capture what we can
-                }
-            }
-        }
-    })
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const prevCanvasRef = useRef<HTMLCanvasElement>(null)
     const clientRef = useRef<LiveClient | null>(null)
@@ -218,87 +169,41 @@ export function LiveCapture() {
         return avgDiff < STABILITY_THRESHOLD
     }, [])
 
+    const scanningTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+    // ...
+
     const buildSystemPrompt = useCallback((hasObjectCapture: boolean) => {
         if (hasObjectCapture) {
-            return `You are a transcription assistant for a memory capture application called Everbloom.
+            return `You are a transcription assistant for a memory capture application.
+            
+Phases:
+1. ACKNOWLEDGEMENT: At the very start, I will tell you what object was captured. You must say "That's a [object], what does this remind you of?" 
+2. TRANSCRIPTION: After that, your ONLY job is to transcribe what the user says.
 
-The object has already been captured. Your ONLY job is to transcribe what the user says about their memory.
-
-CRITICAL INSTRUCTIONS:
-- After every few sentences the user speaks, output a JSON update with the full transcription so far
-- Output format MUST be: {"memory": "the full transcription of everything the user has said so far"}
-- Do NOT speak or make sounds - only output JSON text
-- Do NOT generate or make up content - ONLY transcribe exactly what the user says
-- Do NOT add any commentary, greetings, or acknowledgments
-- Keep updating the transcription as the user continues speaking
-- Include everything they say, even if it seems incomplete`
+CRITICAL INSTRUCTIONS for TRANSCRIPTION:
+- After every few sentences, output a JSON update: {"memory": "full transcription..."}
+- Do NOT speak during transcription. Only output JSON text.
+- Include everything the user says.`
         } else {
-            return `You are an assistant for a memory capture application called Everbloom.
-
-Your job is to analyze video frames and identify when there's a clear, stable view of an object.
-
-When you see a clear, well-lit, in-focus object that's not moving/shaky, respond with EXACTLY this JSON:
-{
-  "objectDetected": true,
-  "description": "detailed 2-3 sentence description of the object's physical characteristics"
-}
-
-CRITICAL INSTRUCTIONS:
-- Focus ONLY on the main object, ignore hands, background, and other items
-- Describe colors, materials, textures, wear patterns, distinguishing features
-- Only respond with JSON when the object view is clear and stable
-- If the image is blurry, dark, or moving too much, stay silent`
+            return `You are a camera assistant.
+1. VOICE COMMANDS: If I send you text starting with "Say", you must speak that exact phrase immediately.
+2. OBJECT DETECTION: Otherwise, analyze video frames. When you see a clear, stable object, respond with JSON:
+{ "objectDetected": true, "description": "..." }
+If the image is blurry or unstable, stay silent.`
         }
     }, [])
 
-    const generateDescription = useCallback(async (imageBase64: string): Promise<string | null> => {
-        try {
-            const response = await fetch("/api/analyze-object", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ imageBase64 })
-            })
-
-            if (!response.ok) return null
-
-            const data = await response.json()
-            return data.description || null
-        } catch (e) {
-            console.error("Failed to generate description:", e)
-            return null
-        }
-    }, [])
+    // ...
 
     const stopLiveCapture = useCallback((resetAll = true) => {
+        if (scanningTimeoutRef.current) {
+            clearTimeout(scanningTimeoutRef.current)
+            scanningTimeoutRef.current = null
+        }
         if (frameIntervalRef.current) {
-            clearInterval(frameIntervalRef.current)
-            frameIntervalRef.current = null
+            // ...
         }
-
-        recorderRef.current?.stop()
-        recorderRef.current = null
-
-        streamerRef.current?.close()
-        streamerRef.current = null
-
-        clientRef.current?.disconnect()
-        clientRef.current = null
-
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop())
-            streamRef.current = null
-        }
-
-        if (resetAll) {
-            setState("idle")
-            setCapturedImagePreview(null)
-            setTranscribedMemory("")
-            transcribedMemoryRef.current = ""
-            capturedObjectRef.current = null
-            setStabilityProgress(0)
-        }
-        setInputVolume(0)
-        setOutputVolume(0)
     }, [])
 
     const startLiveCapture = useCallback(async () => {
@@ -309,6 +214,7 @@ CRITICAL INSTRUCTIONS:
         }
 
         // Reset everything
+        if (scanningTimeoutRef.current) clearTimeout(scanningTimeoutRef.current)
         capturedObjectRef.current = null
         previousFrameDataRef.current = null
         stableFrameCountRef.current = 0
@@ -344,35 +250,49 @@ CRITICAL INSTRUCTIONS:
             clientRef.current = new LiveClient(apiKey)
 
             clientRef.current.on("content", (text) => {
-                console.log("Received content:", text)
+                console.log("Received content chunk:", text)
 
-                // After object is captured, accumulate transcribed memory text
+                // Accumulate all text
                 if (capturedObjectRef.current) {
-                    const memoryMatch = text.match(/\{[\s\S]*"memory"[\s\S]*:[\s\S]*"([\s\S]*)"[\s\S]*\}/)
-                    if (memoryMatch) {
+                    transcriptBufferRef.current += text
+                    const fullText = transcriptBufferRef.current
+
+                    // Try to extract JSON from the full accumulated text
+                    // Handles standard JSON and Markdown code blocks
+                    const jsonMatch = fullText.match(/\{[\s\S]*"memory"[\s\S]*:[\s\S]*"([\s\S]*?)"[\s\S]*\}/) ||
+                        fullText.match(/```json\s*(\{[\s\S]*\})\s*```/) ||
+                        fullText.match(/(\{[\s\S]*"memory"[\s\S]*\})/);
+
+                    if (jsonMatch) {
                         try {
-                            const data = JSON.parse(memoryMatch[0])
+                            // Try parsing the matched JSON string
+                            const jsonStr = jsonMatch[1].startsWith("{") ? jsonMatch[1] : jsonMatch[0];
+                            // Clean up any potential trailing characters that break JSON
+                            const cleanJsonStr = jsonStr.substring(0, jsonStr.lastIndexOf("}") + 1);
+
+                            const data = JSON.parse(cleanJsonStr)
                             if (data.memory) {
                                 console.log("Transcribed memory update:", data.memory)
                                 transcribedMemoryRef.current = data.memory
                                 setTranscribedMemory(data.memory)
                             }
-                        } catch {
-                            if (memoryMatch[1]) {
-                                console.log("Extracted memory from regex:", memoryMatch[1])
-                                transcribedMemoryRef.current = memoryMatch[1]
-                                setTranscribedMemory(memoryMatch[1])
+                        } catch (e) {
+                            // If strict parsing fails, try regex fallback on the buffer
+                            const memoryRegex = /"memory"\s*:\s*"([^"]*)"/;
+                            const match = fullText.match(memoryRegex);
+                            if (match && match[1]) {
+                                console.log("Extracted memory from regex:", match[1])
+                                transcribedMemoryRef.current = match[1]
+                                setTranscribedMemory(match[1])
                             }
                         }
                     } else {
+                        // Fallback processing for incomplete chunks is risky with buffer approach
+                        // But we can check if the current chunk is just plain text
                         const cleanText = text.trim()
-                        if (cleanText && !cleanText.startsWith("{") && cleanText.length > 5) {
-                            console.log("Accumulating plain text:", cleanText)
-                            const newMemory = transcribedMemoryRef.current
-                                ? transcribedMemoryRef.current + " " + cleanText
-                                : cleanText
-                            transcribedMemoryRef.current = newMemory
-                            setTranscribedMemory(newMemory)
+                        if (cleanText && !cleanText.includes("{") && !cleanText.includes("}") && !cleanText.includes('"')) {
+                            // Only accumulate if we have nothing better yet? 
+                            // Actually, let's just trust the buffer accumulation
                         }
                     }
                 }
@@ -394,11 +314,24 @@ CRITICAL INSTRUCTIONS:
             await clientRef.current.connect({
                 model: "gemini-2.0-flash-exp",
                 systemInstruction: buildSystemPrompt(false),
-                responseModalities: [Modality.TEXT]
+                responseModalities: [Modality.AUDIO, Modality.TEXT]
             })
+
+            // Trigger initial greeting
+            setTimeout(() => {
+                clientRef.current?.send("Say 'Let's capture a meaningful object.'")
+            }, 500)
+
+            // Set stability timeout warning
+            scanningTimeoutRef.current = setTimeout(() => {
+                if (!capturedObjectRef.current && !processingCaptureRef.current) {
+                    clientRef.current?.send("Say 'Keep the camera steady and object in view.'")
+                }
+            }, 5000)
 
             // Start audio recording
             recorderRef.current.on("data", (base64Audio) => {
+                // Only send audio during recording phase (after object is captured)
                 if (capturedObjectRef.current) {
                     clientRef.current?.sendRealtimeInput([
                         { mimeType: "audio/pcm;rate=16000", data: base64Audio }
@@ -441,6 +374,12 @@ CRITICAL INSTRUCTIONS:
                         processingCaptureRef.current = true
                         stableFrameCountRef.current = 0
 
+                        // Clear timeout
+                        if (scanningTimeoutRef.current) {
+                            clearTimeout(scanningTimeoutRef.current)
+                            scanningTimeoutRef.current = null
+                        }
+
                         const fullFrame = captureVideoFrame()
                         if (fullFrame) {
                             if (DEBUG_STABILITY) console.log("Capturing stable frame...")
@@ -471,8 +410,14 @@ CRITICAL INSTRUCTIONS:
                                         await clientRef.current.connect({
                                             model: "gemini-2.0-flash-exp",
                                             systemInstruction: buildSystemPrompt(true),
-                                            responseModalities: [Modality.TEXT]
+                                            responseModalities: [Modality.AUDIO, Modality.TEXT]
                                         })
+
+                                        // Trigger recognition greeting
+                                        setTimeout(() => {
+                                            const shortDesc = description.split('.')[0].substring(0, 50); // Simplify for speech
+                                            clientRef.current?.send(`I captured a ${shortDesc}. Say "That's a ${shortDesc}, what does this remind you of?"`)
+                                        }, 500)
                                     }
                                 }
                                 processingCaptureRef.current = false
