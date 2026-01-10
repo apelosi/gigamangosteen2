@@ -9,6 +9,9 @@ import { getSupabaseClient } from "@/lib/supabase/client"
 
 type LiveCaptureState = "idle" | "connecting" | "scanning" | "recording" | "processing" | "speaking" | "saved" | "error"
 
+// Debug flag - set to true to see stability metrics in console
+const DEBUG_STABILITY = true
+
 interface CapturedObject {
     imageBase64: string
     description: string
@@ -157,9 +160,13 @@ export function LiveCapture() {
         const avgDiff = totalDiff / (width * height * 3)
         previousFrameDataRef.current = currentFrameData
 
+        if (DEBUG_STABILITY) {
+            console.log(`Frame stability: avgDiff=${avgDiff.toFixed(2)}, stable=${avgDiff < 15}`)
+        }
+
         // If average pixel difference is low, frame is stable
-        // Threshold of 5 means very little movement
-        return avgDiff < 5
+        // Threshold of 15 allows for camera noise but detects movement
+        return avgDiff < 15
     }, [])
 
     const buildSystemPrompt = useCallback((hasObjectCapture: boolean) => {
